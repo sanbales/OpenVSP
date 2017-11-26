@@ -10,8 +10,9 @@
 #include "XSecSurf.h"
 #include "WingGeom.h"
 #include "CustomGeom.h"
+#include "PropGeom.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
+
 using namespace vsp;
 
 
@@ -167,6 +168,10 @@ XSecCurve* XSecSurf::CreateXSecCurve( int type )
     {
         xscrv_ptr = new CSTAirfoil( );
     }
+    else if ( type == XS_VKT_AIRFOIL )
+    {
+        xscrv_ptr = new VKTAirfoil( );
+    }
 
     return xscrv_ptr;
 }
@@ -194,6 +199,10 @@ XSec* XSecSurf::CreateXSec( int type )
         else if ( m_XSecType == XSEC_CUSTOM )
         {
              xsec_ptr = ( XSec* ) new CustomXSec( xscrv_ptr );
+        }
+        else if ( m_XSecType == XSEC_PROP )
+        {
+             xsec_ptr = ( XSec* ) new PropXSec( xscrv_ptr );
         }
         else
         {
@@ -460,7 +469,7 @@ void XSecSurf::GetBasicTransformation( int pdir, int wdir, int wshift, bool flip
     int row = 3 - ( prow + wrow );
 
     // Cross product to ensure right handed system
-    int r1, r2;
+    int r1 = Y_DIR, r2 = Z_DIR;
     switch( row )
     {
     case X_DIR:

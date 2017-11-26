@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <vector>
-#include <stdlib.h>
 #include <string>
+#include <stdlib.h>
 
 #include "VBO.h"
 

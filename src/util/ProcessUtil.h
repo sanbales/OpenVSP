@@ -22,6 +22,8 @@ using std::vector;
 #define PIPE_READ 0
 #define PIPE_WRITE 1
 
+void SleepForMilliseconds( unsigned int sleep_time);
+
 class ProcessUtil
 {
 public:
@@ -32,10 +34,14 @@ public:
 
     int ForkCmd( const string &path, const string &cmd, const vector<string> &opts );
 
-    void WaitCmd( void *(*updatefun)( void *data ), void *data );
+    void WaitCmd( void *(*updatefun)( void * ), void *data );
     void Kill();
 
     bool IsRunning();
+
+    void ReadStdoutPipe(char * buf, int bufsize, unsigned long * nread );
+
+    string PrettyCmd( const string &path, const string &cmd, const vector<string> &opts ); //returns a command string that could be used on the command line
 
 #ifdef WIN32
     string QuoteString( const string &str );
@@ -43,7 +49,7 @@ public:
 
     HANDLE m_StdoutPipe[2];
 #else
-    void StartThread( void *(*threadfun)( void *data ), void *data );
+    void StartThread( void *(*threadfun)( void * ), void *data );
 
     int m_StdoutPipe[2];
 #endif

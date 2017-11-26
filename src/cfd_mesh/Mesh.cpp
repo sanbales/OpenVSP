@@ -7,15 +7,13 @@
 //
 //////////////////////////////////////////////////////////////////////
 
+#define _USE_MATH_DEFINES
 #include "Mesh.h"
 #include "Surf.h"
-#include "GridDensity.h"
 #include "triangle.h"
 #include "CfdMeshMgr.h"
 #include "Util.h"
 
-
-#define DEBUG_MESH 1
 
 bool LongEdgePairLengthCompare( const pair< Edge*, double >& a, const pair< Edge*, double >& b )
 {
@@ -34,7 +32,6 @@ bool ShortEdgeTargetLengthCompare( const Edge* a, const Edge* b )
 
 Mesh::Mesh()
 {
-    m_TotalIterations = 0;
     m_HighlightNodeIndex = 0;
     m_HighlightEdgeIndex = 2;
 
@@ -327,9 +324,9 @@ int Mesh::CheckDupOrAdd( int ind, map< int, vector< int > > & indMap, vector< ve
         {
             int testind = iter->second[i];
 
-            if ( fabs( pntVec[ind].x() - pntVec[testind].x() ) < tol  &&
-                    fabs( pntVec[ind].y() - pntVec[testind].y() ) < tol  &&
-                    fabs( pntVec[ind].z() - pntVec[testind].z() ) < tol  )
+            if ( std::abs( pntVec[ind].x() - pntVec[testind].x() ) < tol  &&
+                    std::abs( pntVec[ind].y() - pntVec[testind].y() ) < tol  &&
+                    std::abs( pntVec[ind].z() - pntVec[testind].z() ) < tol  )
             {
                 return testind;
             }
@@ -699,9 +696,6 @@ void Mesh::SplitEdge( Edge* edge )
         Edge* ea0 = ta->FindEdge( n0, na );
         Edge* ea1 = ta->FindEdge( na, n1 );
 
-        ea0->splitFlag = true;
-        ea1->splitFlag = true;
-
         Tri* ta0 = AddTri( n0, ns, na, ea0, ea, es0 );
         Tri* ta1 = AddTri( n1, na, ns, ea1, es1, ea );
 
@@ -747,9 +741,6 @@ void Mesh::SplitEdge( Edge* edge )
 
         Edge* eb0 = tb->FindEdge( n0, nb );
         Edge* eb1 = tb->FindEdge( nb, n1 );
-
-        eb0->splitFlag = true;
-        eb1->splitFlag = true;
 
         Tri* tb0 = AddTri( n0, nb, ns, es0, eb, eb0 );
         Tri* tb1 = AddTri( n1, ns, nb, es1, eb1, eb );
@@ -1232,7 +1223,6 @@ void Mesh::CollapseEdge( Edge* edge )
             nc->AddConnectEdge( e );
             CheckValidEdge( e );
         }
-        e->splitFlag = true;
     }
     //==== Change Edges That Point To n1 ====//
     for ( int i = 0 ; i < ( int )n1->edgeVec.size() ; i++ )
@@ -1245,7 +1235,6 @@ void Mesh::CollapseEdge( Edge* edge )
             nc->AddConnectEdge( e );
             CheckValidEdge( e );
         }
-        e->splitFlag = true;
     }
 //if ( ecb->t0 )
 //{

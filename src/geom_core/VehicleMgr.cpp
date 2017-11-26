@@ -8,17 +8,30 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "Vehicle.h"
-#include "VehicleMgr.h"
 
 #ifdef WIN32
 #include <windows.h>
 #endif
 
+bool VehicleMgrSingleton::m_firsttime = true;
+
 //==== Constructor ====//
 VehicleMgrSingleton::VehicleMgrSingleton()
 {
     m_Vehicle = new Vehicle();
-    m_Vehicle->Init();
+}
+
+VehicleMgrSingleton& VehicleMgrSingleton::getInstance()
+{
+    static VehicleMgrSingleton instance;
+
+    if( m_firsttime )
+    {
+        m_firsttime = false;
+        instance.m_Vehicle->Init();
+    }
+
+    return instance;
 }
 
 Vehicle* VehicleMgrSingleton::GetVehicle()

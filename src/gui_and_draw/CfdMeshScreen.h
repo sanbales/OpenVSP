@@ -14,6 +14,7 @@
 #include "ScreenBase.h"
 #include "Vehicle.h"
 #include "GuiDevice.h"
+#include "ProcessUtil.h"
 
 using namespace std;
 
@@ -38,10 +39,14 @@ public:
 
     virtual void GuiDeviceCallBack( GuiDevice* device );
 
-    void parm_changed( Parm* parm ) {}
     void AddOutputText( const string &text );
     string truncateFileName( const string &fn, int len );
     void LoadDrawObjs( vector< DrawObj* > &draw_obj_vec );
+
+    ProcessUtil* getCfdMeshProcess()
+    {
+        return &m_CFDMeshProcess;
+    }
 
 protected:
 
@@ -93,16 +98,19 @@ protected:
     ToggleButton m_TaggedMultiSolid;
     ToggleButton m_PolyFile;
     ToggleButton m_TriFile;
+    ToggleButton m_FacFile;
     ToggleButton m_ObjFile;
     ToggleButton m_MshFile;
     ToggleButton m_DatFile;
     ToggleButton m_KeyFile;
     ToggleButton m_SrfFile;
+    ToggleButton m_XYZIntCurves;
     ToggleButton m_TkeyFile;
 
     TriggerButton m_SelectStlFile;
     TriggerButton m_SelectPolyFile;
     TriggerButton m_SelectTriFile;
+    TriggerButton m_SelectFacFile;
     TriggerButton m_SelectObjFile;
     TriggerButton m_SelectMshFile;
     TriggerButton m_SelectDatFile;
@@ -113,6 +121,7 @@ protected:
     StringOutput m_StlOutput;
     StringOutput m_PolyOutput;
     StringOutput m_TriOutput;
+    StringOutput m_FacOutput;
     StringOutput m_ObjOutput;
     StringOutput m_MshOutput;
     StringOutput m_DatOutput;
@@ -203,6 +212,9 @@ protected:
 
     TriggerButton m_MeshAndExport;
 
+    ProcessUtil m_CFDMeshProcess;
+    ProcessUtil m_MonitorProcess;
+
 private:
 
     void CreateGlobalTab();
@@ -220,7 +232,6 @@ private:
     void UpdateWakesTab();
 
     void GuiDeviceGlobalTabCallback( GuiDevice* device );
-    void GuiDeviceDisplayTabCallback( GuiDevice* device );
     void GuiDeviceOutputTabCallback( GuiDevice* device );
     void GuiDeviceSourcesTabCallback( GuiDevice* device );
     void GuiDeviceDomainTabCallback( GuiDevice* device );

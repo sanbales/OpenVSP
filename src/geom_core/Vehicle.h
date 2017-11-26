@@ -22,9 +22,12 @@
 #include "DegenGeom.h"
 #include "CfdMeshSettings.h"
 #include "ClippingMgr.h"
+#include "SnapTo.h"
 #include "STEPutil.h"
 #include "XferSurf.h"
 #include "MaterialMgr.h"
+#include "WaveDragMgr.h"
+#include "GroupTransformations.h"
 
 #include <assert.h>
 
@@ -77,6 +80,7 @@ public:
     void UnDo();
 
     void Update( bool fullupdate = true );
+    void UpdateGeom( const string &geom_id );
     void ForceUpdate();
     void UpdateGui();
     void RunScript( const string & file_name, const string & function_name = "void main()" );
@@ -113,13 +117,12 @@ public:
     void RemoveGeomVecFromHierarchy( const vector<string> & cut_vec );
     void DeleteClipBoard();
     void PasteClipboard();
+    vector< string > CopyGeomVec( const vector<string> & geom_vec );
 
     vector< DrawObj* > GetDrawObjs();
 
     //==== Reset DrawObjs' m_GeomChanged flag to false. ====//
     void ResetDrawObjsGeomChangedFlags();
-
-    int GetFileOpenVersion()                                { return m_FileOpenVersion; }
 
     //==== Geom Sets ====//
     void SetSetName( int index, const string& name );
@@ -150,6 +153,8 @@ public:
     xmlNodePtr EncodeXml( xmlNodePtr & node, int set );
     xmlNodePtr DecodeXml( xmlNodePtr & node );
 
+    xmlNodePtr DecodeXmlGeomsOnly( xmlNodePtr & node );
+
     enum { REORDER_MOVE_UP, REORDER_MOVE_DOWN, REORDER_MOVE_TOP, REORDER_MOVE_BOTTOM };
 
     bool ExistMesh( int set );
@@ -157,6 +162,7 @@ public:
     vector < string > GetPtCloudGeoms();
 
     int ReadXMLFile( const string & file_name );
+    int ReadXMLFileGeomsOnly( const string & file_name );
 
     void SetVSP3FileName( const string & f_name );
     string GetVSP3FileName()                                { return m_VSP3FileName; }
@@ -184,6 +190,7 @@ public:
     void WritePLOT3DFile( const string & file_name, int write_set );
     void WriteSTLFile( const string & file_name, int write_set );
     void WriteTaggedMSSTLFile( const string & file_name, int write_set );
+    void WriteFacetFile( const string & file_name, int write_set );
     void WriteTRIFile( const string & file_name, int write_set );
     void WriteNascartFiles( const string & file_name, int write_set );
     void WriteGmshFile( const string & file_name, int write_set );
@@ -194,6 +201,23 @@ public:
     void WritePovRayFile( const string & file_name, int write_set );
     void WriteSTEPFile( const string & file_name, int write_set );
     void WriteIGESFile( const string & file_name, int write_set );
+    void WriteBEMFile( const string & file_name, int write_set );
+    void WriteDXFFile( const string & file_name, int write_set );
+    void WriteSVGFile( const string & file_name, int write_set );
+
+    void WriteVehProjectionLinesDXF( FILE * file_name, const BndBox &dxfbox );
+    void WriteVehProjectionLinesSVG( xmlNodePtr root, const BndBox &svgbox );
+
+    vector< vector < vec3d > > GetVehProjectionLines( int view, vec3d offset );
+
+    virtual void SetVehProjectVec3d( vector < vector < vec3d > > polyvec, int dir_index )
+    {
+        m_VehProjectVec3d[dir_index] = polyvec;
+    }
+    virtual vector < vector < vec3d > >  GetVehProjectVec3d( int dir_index )
+    {
+        return m_VehProjectVec3d[dir_index];
+    }
 
     void FetchXFerSurfs( int write_set, vector< XferSurf > &xfersurfs );
     //==== Computation File Names ====//
@@ -217,21 +241,18 @@ public:
     string ImportV2File( const string & file_name );
 
     //Comp Geom
-    string CompGeom( int set, int sliceFlag, int halfFlag, int intSubsFlag = 1 );
-    string CompGeomAndFlatten( int set, int sliceFlag, int halfFlag, int intSubsFlag = 1 );
+    string CompGeom( int set, int halfFlag, int intSubsFlag = 1 );
+    string CompGeomAndFlatten( int set, int halfFlag, int intSubsFlag = 1 );
     string MassProps( int set, int numSlices, bool hidegeom = true, bool writefile = true );
     string MassPropsAndFlatten( int set, int numSlices, bool hidegeom = true, bool writefile = true );
-    string AwaveSlice( int set, int numSlices, int numRots, double AngleControlVal, bool computeAngle,
-                       vec3d norm, bool autoBoundsFlag, double start = 0, double end = 0 );
-    string AwaveSliceAndFlatten( int set, int numSlices, int numRots, double AngleControlVal, bool computeAngle,
-                                 vec3d norm, bool autoBoundsFlag, double start = 0, double end = 0 );
     string PSlice( int set, int numSlices, vec3d norm, bool autoBoundsFlag, double start = 0, double end = 0 );
     string PSliceAndFlatten( int set, int numSlices, vec3d norm, bool autoBoundsFlag, double start = 0, double end = 0 );
 
     //==== Degenerate Geometry ====//
     void CreateDegenGeom( int set );
-    vector< DegenGeom > GetDegenGeomVec()	{ return m_DegenGeomVec; }
+    vector< DegenGeom > GetDegenGeomVec()    { return m_DegenGeomVec; }
     string WriteDegenGeomFile();
+    void ClearDegenGeom()   { m_DegenGeomVec.clear(); }
 
     CfdMeshSettings* GetCfdSettingsPtr()
     {
@@ -253,6 +274,17 @@ public:
         return &m_ClippingMgr;
     }
 
+    SnapTo* GetSnapToPtr()
+    {
+        return &m_SnapTo;
+    }
+
+    // ==== Getter for GroupTransformations ==== //
+    GroupTransformations* GetGroupTransformationsPtr()
+    {
+        return &m_GroupTransformations;
+    }
+
     //==== Mass Properties ====//
     vec3d m_IxxIyyIzz;
     vec3d m_IxyIxzIyz;
@@ -270,14 +302,55 @@ public:
     IntParm m_STEPLenUnit;
     Parm m_STEPTol;
     BoolParm m_STEPSplitSurfs;
+    BoolParm m_STEPSplitSubSurfs;
     BoolParm m_STEPMergePoints;
     BoolParm m_STEPToCubic;
     Parm m_STEPToCubicTol;
+    BoolParm m_STEPTrimTE;
 
     IntParm m_IGESLenUnit;
     BoolParm m_IGESSplitSurfs;
+    BoolParm m_IGESSplitSubSurfs;
     BoolParm m_IGESToCubic;
     Parm m_IGESToCubicTol;
+    BoolParm m_IGESTrimTE;
+
+    //==== DXF Export ====//
+    IntParm m_DXFLenUnit;
+    BoolParm m_DXFProjectionFlag;
+    Parm m_DXFTessFactor;
+    BoolParm m_DXFAllXSecFlag;
+    BoolParm m_DXFColorFlag;
+    int m_ColorCount;
+    IntParm m_DXF2DView;
+    IntParm m_DXF2D3DFlag;
+    IntParm m_DXF4View1;
+    IntParm m_DXF4View2;
+    IntParm m_DXF4View3;
+    IntParm m_DXF4View4;
+    IntParm m_DXF4View1_rot;
+    IntParm m_DXF4View2_rot;
+    IntParm m_DXF4View3_rot;
+    IntParm m_DXF4View4_rot;
+
+    //==== SVG Export ====//
+    IntParm m_SVGLenUnit;
+    IntParm m_SVGSet;
+    Parm m_Scale;
+    BoolParm m_SVGProjectionFlag;
+    Parm m_SVGTessFactor;
+    BoolParm m_SVGAllXSecFlag;
+    IntParm m_SVGView;
+    IntParm m_SVGView1;
+    IntParm m_SVGView2;
+    IntParm m_SVGView3;
+    IntParm m_SVGView4;
+    IntParm m_SVGView1_rot;
+    IntParm m_SVGView2_rot;
+    IntParm m_SVGView3_rot;
+    IntParm m_SVGView4_rot;
+
+    string m_BEMPropID;
 
     BoolParm m_STLMultiSolid;
 
@@ -286,6 +359,8 @@ public:
     BoolParm m_exportDegenGeomCsvFile;
     BoolParm m_exportDegenGeomMFile;
 
+    Parm m_AxisLength;
+
 protected:
 
     vector< Geom* > m_GeomStoreVec;                 // All Geom Ptrs
@@ -293,12 +368,11 @@ protected:
     vector< DegenGeom > m_DegenGeomVec;         // Vector of components in degenerate representation
     vector< DegenPtMass > m_DegenPtMassVec;
 
+    vector < vector < vector < vec3d > > > m_VehProjectVec3d; // Vector of projection lines for each view direction (x, y, or z)
 
     vector< string > m_ActiveGeom;              // Currently Active Geoms
     vector< string > m_TopGeom;                 // Top (no Parent) Geom IDs
     vector< string > m_ClipBoard;               // Clipboard IDs
-
-    stack< ParmUndo > m_ParmUndoStack;
 
     vector< string > m_SetNameVec;
 
@@ -307,8 +381,6 @@ protected:
     bool m_UpdatingBBox;
     BndBox m_BBox;                              // Bounding Box Around All Geometries
 
-    vector< string > CopyGeomVec( const vector<string> & geom_vec );
-    void InsertIntoActiveDeque( const string & add_id, const string & parent_id );  // Insert Geom After Parent
     void SetApplyAbsIgnoreFlag( const vector< string > &g_vec, bool val );
 
     //==== Primary file name ====//
@@ -332,8 +404,12 @@ protected:
     FeaGridDensity m_FeaGridDensity;
 
     ClippingMgr m_ClippingMgr;
+    SnapTo m_SnapTo;
 
     VehicleGuiDraw m_VGuiDraw;
+
+    // Class to handle group transformations
+    GroupTransformations m_GroupTransformations;
 
 private:
 

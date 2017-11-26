@@ -10,7 +10,6 @@
 #include "AdvLinkMgr.h"
 #include "ParmMgr.h"
 #include "Vehicle.h"
-#include "VehicleMgr.h"
 #include "VSP_Geom_API.h"
 #include "ScriptMgr.h"
 
@@ -125,7 +124,7 @@ void AdvLink::SetVar( const string & var_name, double val )
         if ( m_OutputVars[i].m_VarName == var_name )
         {
             Parm* parm_ptr = ParmMgr.FindParm(  m_OutputVars[i].m_ParmID );
-            if ( parm_ptr && val > -1.0e15 && parm_ptr->GetLinkUpdateFlag() == false )
+            if ( parm_ptr && val > -1.0e15 && !parm_ptr->GetLinkUpdateFlag() )
             {
                 parm_ptr->SetFromLink( val );
                 break;

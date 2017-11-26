@@ -6,11 +6,7 @@
 
 #include "MassPropScreen.h"
 #include "ScreenMgr.h"
-#include "EventMgr.h"
-#include "Vehicle.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
-#include <assert.h>
 
 MassPropScreen::MassPropScreen( ScreenMgr *mgr ) : VspScreen( mgr )
 {
@@ -66,7 +62,7 @@ bool MassPropScreen::Update()
     m_MassPropUI->ixyOutput->value( str );
     sprintf( str, format, pmoi.y() );
     m_MassPropUI->ixzOutput->value( str );
-    sprintf( str, format, pmoi.y() );
+    sprintf( str, format, pmoi.z() );
     m_MassPropUI->iyzOutput->value( str );
 
     m_MassPropUI->fileExportOutput->value( vehiclePtr->getExportFileName( vsp::MASS_PROP_TXT_TYPE ).c_str() );

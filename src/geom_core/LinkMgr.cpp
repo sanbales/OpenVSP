@@ -11,7 +11,6 @@
 #include "AdvLinkMgr.h"
 #include "ParmMgr.h"
 #include "Vehicle.h"
-#include "VehicleMgr.h"
 #include "StlHelper.h"
 
 bool LinkMgrSingleton::m_firsttime = true;
@@ -234,9 +233,6 @@ bool LinkMgrSingleton::AddLink( const string& pidA, const string& pidB )
     pl->SetScaleFlag( false );
     pl->m_Scale.Set( 1.0 );
 
-    pA->SetLinkedFlag( true );
-    pB->SetLinkedFlag( true );
-
     m_LinkVec.push_back( pl );
     m_CurrLinkIndex = ( int )m_LinkVec.size() - 1;
 
@@ -413,7 +409,7 @@ void LinkMgrSingleton::ParmChanged( const string& pid, bool start_flag  )
         Link* pl = parm_link_vec[i];
         Parm* pB = ParmMgr.FindParm( pl->GetParmB() );
 
-        if ( pB && ( pB->GetLinkUpdateFlag() == false ) )       // Prevent Circular
+        if ( pB && ! pB->GetLinkUpdateFlag() )       // Prevent Circular
         {
             double offset = 0.0;
             if ( pl->GetOffsetFlag() )
@@ -453,10 +449,10 @@ void LinkMgrSingleton::ParmChanged( const string& pid, bool start_flag  )
     {
         for ( int i = 0 ; i < ( int )m_UpdatedParmVec.size() ; i++ )
         {
-            Parm* parm_ptr = ParmMgr.FindParm( m_UpdatedParmVec[i] );
-            if ( parm_ptr )
+            Parm* p = ParmMgr.FindParm( m_UpdatedParmVec[i] );
+            if ( p )
             {
-                parm_ptr->SetLinkUpdateFlag( false );
+                p->SetLinkUpdateFlag( false );
             }
         }
         m_UpdatedParmVec.clear();
@@ -724,4 +720,24 @@ void LinkMgrSingleton::DeleteAllUserParm( )
     {
         m_UserParms.DeleteParm( m_UserParms.GetNumUserParms() - 1 );
     }
+}
+
+bool LinkNameCompareA( const Link *lnkA, const Link *lnkB )
+{
+    return NameCompare( lnkA->GetParmA(), lnkB->GetParmA() );
+}
+
+bool LinkNameCompareB( const Link *lnkA, const Link *lnkB )
+{
+    return NameCompare( lnkA->GetParmB(), lnkB->GetParmB() );
+}
+
+void LinkMgrSingleton::SortLinksByA()
+{
+    std::sort( m_LinkVec.begin(), m_LinkVec.end(), LinkNameCompareA );
+}
+
+void LinkMgrSingleton::SortLinksByB()
+{
+    std::sort( m_LinkVec.begin(), m_LinkVec.end(), LinkNameCompareB );
 }

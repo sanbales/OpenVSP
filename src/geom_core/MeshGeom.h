@@ -64,14 +64,11 @@ public:
     virtual xmlNodePtr EncodeXml( xmlNodePtr & node );
     virtual xmlNodePtr DecodeXml( xmlNodePtr & node );
 
-    string m_FileName;
-
     double m_TotalTheoArea;
     double m_TotalWetArea;
     double m_TotalTheoVol;
     double m_TotalWetVol;
 
-    int m_MassPropFlag;
     vec3d m_CenterOfGrav;
 
     double m_TotalMass;
@@ -86,6 +83,7 @@ public:
     double m_MaxTriDen;
 
     vector < TMesh* > m_TMeshVec;
+    vector < vector < vec3d > > m_PolyVec;
 
     // Scale Transformation Matrix
     Matrix4d m_ScaleMatrix;
@@ -125,21 +123,15 @@ public:
     {
         return m_TMeshVec.size();
     }
-    virtual vector< TTri* > & GetIndexedTriVec()
-    {
-        return m_IndexedTriVec;
-    }
-    virtual vector< TNode* > & GetIndexedNodeVec()
-    {
-        return m_IndexedNodeVec;
-    }
 
     virtual void WriteNascartPnts( FILE* file_id );
     virtual void WriteCart3DPnts( FILE* file_id );
     virtual int  WriteGMshNodes( FILE* file_id, int node_offset );
+    virtual void WriteFacetNodes( FILE* file_id );
     virtual int  WriteNascartTris( FILE* file_id, int offset );
     virtual int  WriteCart3DTris( FILE* file_id, int offset );
     virtual int  WriteGMshTris( FILE* file_id, int node_offset, int tri_offset );
+    virtual void WriteFacetTriParts( FILE* file_id, int &offset, int &tri_count, int &part_count );
     virtual int  WriteNascartParts( FILE* file_id, int offset );
     virtual int  WriteCart3DParts( FILE* file_id );
     virtual void WritePovRay( FILE* fid, int comp_num );
@@ -148,17 +140,18 @@ public:
 
     virtual void CreatePtCloudGeom();
 
-    virtual void dump_xsec_file( int, FILE* ) {}
     virtual void Scale();
 
     //==== Intersection, Splitting and Trimming ====//
     virtual void IntersectTrim( int halfFlag = 0, int intSubsFlag = 1 );
     virtual void degenGeomIntersectTrim( vector< DegenGeom > &degenGeom );
-    virtual void SliceX( int numSlice );
     virtual void MassSliceX( int numSlice, bool writefile = true );
     virtual void degenGeomMassSliceX( vector< DegenGeom > &degenGeom );
-    virtual void AreaSlice( int style, int numSlices, double sliceAngle, double coneSections, vec3d norm, bool autoBounds,
-                            double start = 0, double end = 0 );
+    virtual void AreaSlice( int numSlices, vec3d norm, bool autoBounds, double start = 0, double end = 0 );
+
+    virtual void WaveStartEnd( const double &sliceAngle, const vec3d &center );
+    virtual void WaveDragSlice( int numSlices, double sliceAngle, int coneSections,
+                             const vector <string> & Flow_vec, bool Symm = 0 );
     virtual vector<vec3d> TessTriangles( vector<vec3d> &tri );
     virtual vector<vec3d> TessTri( vec3d t1, vec3d t2, vec3d t3, int iterations );
 
@@ -195,6 +188,9 @@ public:
     virtual void SubTagTris( bool tag_subs );
 
     virtual void PreMerge();
+
+    BoolParm m_ViewMeshFlag;
+    BoolParm m_ViewSliceFlag;
 
     // Debug Attributes
 

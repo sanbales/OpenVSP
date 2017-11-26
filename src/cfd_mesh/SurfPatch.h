@@ -22,7 +22,7 @@
 #define DEFAULT_PLANE_TOL (1.0e-5)
 
 #include <assert.h>
-#include <math.h>
+#include <cmath>
 #include <float.h>
 
 #include <vector>
@@ -75,7 +75,6 @@ public:
     {
         return &bnd_box;
     }
-    friend void intersect( SurfPatch& bp1, SurfPatch& bp2 );
     friend void intersect( SurfPatch& bp1, SurfPatch& bp2, int depth );
     void find_closest_uw( vec3d& pnt_in, double guess_uw[2], double uw[2] );
     void find_closest_uw( vec3d& pnt_in, double uw[2] );
@@ -101,9 +100,6 @@ public:
     }
 
     friend void intersect_quads( SurfPatch&  bp1, SurfPatch& bp2 );
-
-
-    bool draw_flag;
 
 protected:
 

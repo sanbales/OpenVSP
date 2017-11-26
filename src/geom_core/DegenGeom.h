@@ -68,6 +68,12 @@ typedef struct
     vector< double >            areaTop;    //!
     vector< double >            areaBot;    //!
     vector< double >            u;          //!
+    vector< double >            toc2;       //!
+    vector< double >            tLoc2;      //!
+    vector< double >            anglele;    //!
+    vector< double >            anglete;    //!
+    vector< double >            radleTop;   //!
+    vector< double >            radleBot;   //!
 } DegenStick;
 
 typedef struct
@@ -84,11 +90,23 @@ typedef struct
 
 typedef struct
 {
-    string                      name;       //!
-    int                         testType;   //!
+    string                      name;       //! name displayed in the geom GUI
+    string                      fullName;   //! fullName identifying parent geometry and parent surface index
+    int                         testType;   //! "test" for subsurfaces to define which side of the boundary the subsurface is on (commonly used for LINE subsurface types)
+    string                      typeName;   //! used to identify the design intent of the surface (see vsp::SUBSURF_TYPE in APIDefines.h and std::string SubSurface::GetTypeName( int type ) for more info)
+    vsp::SUBSURF_TYPE           typeId;     //! enumeration for the typeName; vsp::SUBSURF_TYPE
     vector< double >            u;          //!
     vector< double >            w;          //!
 } DegenSubSurf;
+
+typedef struct
+{
+    string                      name;
+    vector < double >           uStart;
+    vector < double >           uEnd;
+    vector < double >           wStart;
+    vector < double >           wEnd;
+} DegenHingeLine;
 
 typedef struct
 {
@@ -107,9 +125,9 @@ typedef struct
 class DegenGeom
 {
 public:
-    enum { XY_PLANE, XZ_PLANE, YZ_PLANE };
+    enum GEOM_PLANE { XY_PLANE, XZ_PLANE, YZ_PLANE };
 
-    enum { SURFACE_TYPE, BODY_TYPE, DISK_TYPE };
+    enum DEGEN_GEOM_TYPE { SURFACE_TYPE, BODY_TYPE, DISK_TYPE };
 
     DegenGeom()
     {
@@ -121,6 +139,19 @@ public:
     };
     virtual ~DegenGeom() {};
 
+    DegenSurface getDegenSurf()
+    {
+        return degenSurface;
+    }
+    vector < DegenPlate > getDegenPlates()
+    {
+        return degenPlates;
+    }
+    vector < DegenSubSurf > getDegenSubSurfs()
+    {
+        return degenSubSurfs;
+    }
+
     DegenPoint   getDegenPoint()
     {
         return degenPoint;
@@ -128,6 +159,10 @@ public:
     DegenDisk   getDegenDisk()
     {
         return degenDisk;
+    }
+    vector <DegenStick> getDegenSticks()
+    {
+        return degenSticks;
     }
 
     void setDegenPoint( DegenPoint degenPoint )
@@ -202,11 +237,13 @@ public:
     void createSurfDegenPlate( const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts );
     void createBodyDegenPlate( const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts );
     void createDegenPlate( DegenPlate &degenPlate, const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts, int nLow, int nHigh, int startPnt );
-    void createSurfDegenStick( const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts );
+    void createSurfDegenStick( const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts, const VspSurf *foilSurf, const bool &urootcap );
     void createBodyDegenStick( const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts );
     void createDegenStick( DegenStick &degenStick, const vector< vector< vec3d > > &pntsarr, const vector< vector< vec3d > > &uw_pnts, int nLow, int nHigh, int startPnt );
+    void augmentFoilSurfDegenStick( DegenStick &degenStick, const VspSurf *foilSurf, const vector< vector< vec3d > > &uw_pnts, const bool &urootcap );
     void createDegenDisk(  const vector< vector< vec3d > > &pntsarr, bool flipnormal );
-    void addDegenSubSurf( SubSurface *ssurf );
+    void addDegenSubSurf( SubSurface *ssurf, int surfIndx );
+    void addDegenHingeLine( SSControlSurf *csurf );
 
     string makeCsvFmt( int n, bool newline = true );
     void write_degenGeomCsv_file( FILE* file_id );
@@ -216,6 +253,7 @@ public:
     void write_degenGeomPointCsv_file( FILE* file_id, int nxsecs );
     void write_degenGeomDiskCsv_file( FILE* file_id );
     void write_degenSubSurfCsv_file( FILE* file_id, int isubsurf );
+    void write_degenHingeLineCsv_file( FILE* file_id, int ihingeline );
 
     void write_degenGeomM_file( FILE* file_id );
     void write_degenGeomSurfM_file( FILE* file_id, int nxsecs );
@@ -224,6 +262,7 @@ public:
     void write_degenGeomPointM_file( FILE* file_id, int nxsecs );
     void write_degenGeomDiskM_file( FILE* file_id );
     void write_degenSubSurfM_file( FILE* file_id, int isubsurf );
+    void write_degenHingeLineM_file( FILE* file_id, int ihingeline );
 
 protected:
 
@@ -233,6 +272,7 @@ protected:
     DegenPoint   degenPoint;
     DegenDisk    degenDisk;
     vector< DegenSubSurf > degenSubSurfs;
+    vector< DegenHingeLine > degenHingeLines;
 
     int num_xsecs;
     int num_pnts;

@@ -246,6 +246,7 @@ public:
     virtual void WriteTaggedSTL( const string &filename );
     virtual void WriteTetGen( const string &filename );
     virtual void WriteNASCART_Obj_Tri_Gmsh( const string &dat_fn, const string &key_fn, const string &obj_fn, const string &tri_fn, const string &gmsh_fn );
+    virtual void WriteFacet( const string &facet_fn );
     virtual void WriteSurfsIntCurves( const string &filename  );
 
     virtual void ExportFiles();
@@ -270,11 +271,6 @@ public:
 
     virtual void PrintQual();
     virtual string GetQualString();
-
-    virtual Surf* GetSurf( int ind )
-    {
-        return m_SurfVec[ind];
-    }
 
 //  virtual void AddISeg( Surf* sA, Surf* sB, vec2d & sAuw0, vec2d & sAuw1,  vec2d & sBuw0, vec2d & sBuw1 );
     virtual void AddIntersectionSeg( SurfPatch& pA, SurfPatch& pB, vec3d & ip0, vec3d & ip1 );
@@ -351,7 +347,7 @@ public:
     vector< vec3d > m_DebugColors;
 #endif
 
-    ostringstream m_OutStream;
+    stringstream m_OutStream;
 
 
     CfdMeshSettings* GetCfdSettingsPtr()
@@ -359,6 +355,14 @@ public:
         return m_Vehicle->GetCfdSettingsPtr();
     }
 
+    bool GetMeshInProgress()
+    {
+        return m_MeshInProgress;
+    }
+    virtual void SetMeshInProgress( bool progress_flag )
+    {
+        m_MeshInProgress = progress_flag;
+    }
 
 protected:
 
@@ -369,6 +373,8 @@ protected:
     virtual void UpdateBBoxDOSymSplit( BndBox box );
 
     Vehicle* m_Vehicle;
+
+    bool m_MeshInProgress;
 
     string m_CurrSourceGeomID;
     int m_CurrMainSurfIndx;
@@ -383,8 +389,6 @@ protected:
 
     list< ISegChain* > m_ISegChainList;
 
-    vector< IPnt* > m_IPntVec;
-    vector< ISeg* > m_IsegVec;
     map< int, IPntBin > m_BinMap;
 
     //vector< ISegSplit* > m_ISegSplitVec;
@@ -409,11 +413,7 @@ protected:
     vector<Tri*> m_BadTris;
     vector< Node* > m_nodeStore;
 
-    vector< string > m_GeomIDs;
-
 private:
-    vector < DrawObj > m_MeshTriDO;
-    vector < DrawObj > m_MeshWakeTriDO;
     DrawObj m_MeshBadEdgeDO;
     DrawObj m_MeshBadTriDO;
     DrawObj m_BBoxLineStripDO;
@@ -421,6 +421,9 @@ private:
     DrawObj m_BBoxLineStripSymSplit;
     DrawObj m_BBoxLineSymSplit;
     vector< DrawObj > m_TagDO;
+
+//    DrawObj m_ISegChainDO;
+//    DrawObj m_ISegChainPtsDO;
 };
 
 #define CfdMeshMgr CfdMeshMgrSingleton::getInstance()

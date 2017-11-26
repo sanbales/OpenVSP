@@ -5,22 +5,11 @@
 
 #include "SurfCore.h"
 #include "BezierCurve.h"
-#include "Surf.h"
 
-#include "eli/geom/curve/piecewise_creator.hpp"
 #include "eli/geom/surface/piecewise_body_of_revolution_creator.hpp"
 #include "eli/geom/surface/piecewise_capped_surface_creator.hpp"
-#include "eli/geom/intersect/minimum_distance_surface.hpp"
 
-typedef piecewise_surface_type::index_type surface_index_type;
-typedef piecewise_surface_type::rotation_matrix_type surface_rotation_matrix_type;
 typedef piecewise_surface_type::bounding_box_type surface_bounding_box_type;
-
-typedef eli::geom::curve::piecewise_linear_creator<double, 3, surface_tolerance_type> piecewise_linear_creator_type;
-typedef eli::geom::surface::piecewise_general_skinning_surface_creator<double, 3, surface_tolerance_type> general_creator_type;
-typedef eli::geom::surface::piecewise_capped_surface_creator<double, 3, surface_tolerance_type> capped_creator_type;
-
-
 
 SurfCore::SurfCore()
 {
@@ -35,7 +24,7 @@ void SurfCore::GetBorderCurve( const vec3d &uw0, const vec3d &uw1, Bezier_curve 
     int iborder = -1;
     double tol = 1.0e-12;
 
-    if ( fabs( uw0.x() - uw1.x() ) < tol ) // U const, UMIN or UMAX
+    if ( std::abs( uw0.x() - uw1.x() ) < tol ) // U const, UMIN or UMAX
     {
         double umid = ( m_Surface.get_umax() + m_Surface.get_u0() ) / 2.0;
 
@@ -44,7 +33,7 @@ void SurfCore::GetBorderCurve( const vec3d &uw0, const vec3d &uw1, Bezier_curve 
         else
             iborder = UMAX;
     }
-    else if ( fabs( uw0.y() - uw1.y() ) < tol )
+    else if ( std::abs( uw0.y() - uw1.y() ) < tol )
     {
         double vmid = ( m_Surface.get_vmax() + m_Surface.get_v0() ) / 2.0;
 
@@ -289,7 +278,7 @@ void SurfCore::CompCurvature( double u, double w, double& k1, double& k2, double
     double kmin = ka - b;
 
     // Ensure k1 has largest magnitude
-    if( fabs( kmax ) > fabs( kmin ) )
+    if( std::abs( kmax ) > std::abs( kmin ) )
     {
         k1 = kmax;
         k2 = kmin;
@@ -352,7 +341,7 @@ bool SurfCore::PlaneAtYZero() const
                 {
                     surface_point_type cp;
                     cp = patch->get_control_point( icp, jcp );
-                    if ( fabs( cp.y() ) > tol )
+                    if ( std::abs( cp.y() ) > tol )
                     {
                         return false;
                     }
@@ -592,7 +581,7 @@ void SurfCore::WriteSurf( FILE* fp ) const
     int numU, numW;
 
     int ip, jp, nupatch, nwpatch, ioffset, joffset;
-    int icp, jcp, udeg, wdeg;
+    int icp, jcp, udeg = 0, wdeg = 0;
 
     nupatch = m_Surface.number_u_patches();
     nwpatch = m_Surface.number_v_patches();

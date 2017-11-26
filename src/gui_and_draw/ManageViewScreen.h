@@ -9,7 +9,7 @@
 
 #include "ScreenBase.h"
 #include "Parm.h"
-#include <math.h>
+#include <cmath>
 
 using namespace std;
 
@@ -32,8 +32,6 @@ public:
     {
         ( ( ManageViewScreen* )data )->CallBack( w );
     }
-
-    void LoadDrawObjs(vector< DrawObj* > & draw_obj_vec);
 
     /*!
      * Updates Viewport GUI devices for changes that occur manually
@@ -96,6 +94,8 @@ protected:
     SliderAdjRangeInput m_XRotation;
     SliderAdjRangeInput m_YRotation;
     SliderAdjRangeInput m_ZRotation;
+
+    SliderAdjRangeInput m_AxisLenSlider;
 
     TriggerButton m_ResetCamera;
 

@@ -12,7 +12,7 @@
 //
 //******************************************************************************
 
-#include <math.h>
+#include <cmath>
 #include <float.h>  //For DBL_EPSILON
 #include "Vec2d.h"
 
@@ -234,17 +234,6 @@ double cos_angle( const vec2d& a, const vec2d& b )
     }
 }
 
-
-//******* Dist Between Point And Plane ******//
-double dist_pnt_2_plane( vec2d& org, vec2d& norm, vec2d& pnt )
-{
-    //===== NORM SHOULD BE NORMALIZED ====//
-    double d = dot( ( pnt - org ), norm );
-
-    return( fabs( d ) );
-
-}
-
 //******* Encode Segment Points To Rectangle  Boundaries ******//
 // Adapted From : Hill, "Computer Graphics", Macmillan Pub., New York, 1990. //
 void encode( double x_min, double y_min, double x_max, double y_max, const vec2d& pnt, int code[4] )
@@ -321,7 +310,7 @@ void clip_seg_rect( double x_min, double y_min, double x_max, double y_max,
 
             // Vertical Line //
             //if ( pnt2.v[0] == pnt1.v[0] )
-            if( fabs( pnt2.v[0] - pnt1.v[0] ) <= DBL_EPSILON )
+            if( std::abs( pnt2.v[0] - pnt1.v[0] ) <= DBL_EPSILON )
             {
                 if ( c1[3] )
                 {

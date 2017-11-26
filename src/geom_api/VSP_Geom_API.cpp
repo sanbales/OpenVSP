@@ -9,18 +9,19 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "VSP_Geom_API.h"
-#include "APIErrorMgr.h"
 #include "VehicleMgr.h"
 #include "Vehicle.h"
 #include "ParmMgr.h"
 #include "LinkMgr.h"
-#include "ResultsMgr.h"
-#include "XSecSurf.h"
+#include "AnalysisMgr.h"
 #include "CfdMeshMgr.h"
 #include "Util.h"
 #include "DesignVarMgr.h"
-#include "SubSurfaceMgr.h"
+#include "VarPresetMgr.h"
+#include "ParasiteDragMgr.h"
 #include "WingGeom.h"
+#include "PropGeom.h"
+#include "VSPAEROMgr.h"
 
 #ifdef VSP_USE_FLTK
 #include "GuiInterface.h"
@@ -168,6 +169,18 @@ void WriteVSPFile( const string & file_name, int set )
     ErrorMgr.NoError();
 }
 
+void SetVSP3FileName( const string & file_name )
+{
+    Vehicle* veh = GetVehicle();
+    if ( !veh )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetVSP3FileName::Failure Getting Vehicle Ptr"  );
+        return;
+    }
+    veh->SetVSP3FileName( file_name );
+    ErrorMgr.NoError();
+}
+
 string GetVSPFileName()
 {
     Vehicle* veh = GetVehicle();
@@ -206,7 +219,7 @@ void InsertVSPFile( const string & file_name, const string & parent  )
         veh->ClearActiveGeom();
     }
 
-    int err = veh->ReadXMLFile( file_name );
+    int err = veh->ReadXMLFileGeomsOnly( file_name );
     if( err != 0 )
     {
         ErrorMgr.AddError( VSP_WRONG_FILE_TYPE, "InsertVSPFile::Error"  );
@@ -345,6 +358,8 @@ void SetComputationFileName( int file_type, const string & file_name )
         CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( file_name, CFD_POLY_FILE_NAME );
     if ( file_type == CFD_TRI_TYPE )
         CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( file_name, CFD_TRI_FILE_NAME );
+    if ( file_type == CFD_FACET_TYPE )
+        CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( file_name, CFD_FACET_FILE_NAME );
     if ( file_type == CFD_OBJ_TYPE )
         CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( file_name, CFD_OBJ_FILE_NAME );
     if ( file_type == CFD_DAT_TYPE )
@@ -398,7 +413,7 @@ string ComputeCompGeom( int set, bool half_mesh, int file_export_types )
         veh->setExportDragBuildTsvFile( true );
     }
 
-    string id = veh->CompGeomAndFlatten( set, 0, half_mesh );
+    string id = veh->CompGeomAndFlatten( set, half_mesh );
 
     if ( id.size() == 0 )
     {
@@ -446,27 +461,6 @@ string ComputePlaneSlice( int set, int num_slices, const vec3d & norm, bool auto
     if ( id.size() == 0 )
     {
         ErrorMgr.AddError( VSP_INVALID_ID, "ComputePlaneSlice::Invalid ID " );
-    }
-    else
-    {
-        ErrorMgr.NoError();
-    }
-
-    return id;
-}
-
-//==== Compute AWave Slice =====//
-extern string ComputeAwaveSlice( int set, int num_slices, int num_rots, double ang_control, bool comp_ang,
-                                 const vec3d & norm, bool auto_bnd, double start_bnd, double end_bnd )
-{
-    Update();
-    Vehicle* veh = GetVehicle();
-
-    string id = veh->AwaveSliceAndFlatten( set, num_slices, num_rots, ang_control, comp_ang, norm, auto_bnd, start_bnd, end_bnd );
-
-    if ( id.size() == 0 )
-    {
-        ErrorMgr.AddError( VSP_INVALID_ID, "ComputeAwaveSlice::Invalid ID " );
     }
     else
     {
@@ -529,6 +523,8 @@ void SetCFDMeshVal( int type, double val )
         CfdMeshMgr.GetCfdSettingsPtr()->m_WakeScale = val;
     else if ( type == CFD_WAKE_ANGLE )
         CfdMeshMgr.GetCfdSettingsPtr()->m_WakeAngle = val;
+    else if ( type == CFD_SRF_XYZ_FLAG )
+        CfdMeshMgr.GetCfdSettingsPtr()->m_XYZIntCurveFlag = ToBool(val);
     else
     {
         ErrorMgr.AddError( VSP_CANT_FIND_TYPE, "SetCFDMeshVal::Can't Find Type " + to_string( ( long long )type ) );
@@ -633,6 +629,8 @@ void ComputeCFDMesh( int set, int file_export_types )
         CfdMeshMgr.GetCfdSettingsPtr()->SetFileExportFlag( CFD_POLY_FILE_NAME, true );
     if ( file_export_types & CFD_TRI_TYPE )
         CfdMeshMgr.GetCfdSettingsPtr()->SetFileExportFlag( CFD_TRI_FILE_NAME, true );
+    if ( file_export_types & CFD_FACET_TYPE )
+        CfdMeshMgr.GetCfdSettingsPtr()->SetFileExportFlag( CFD_FACET_FILE_NAME, true );
     if ( file_export_types & CFD_OBJ_TYPE )
         CfdMeshMgr.GetCfdSettingsPtr()->SetFileExportFlag( CFD_OBJ_FILE_NAME, true );
     if ( file_export_types & CFD_DAT_TYPE )
@@ -651,6 +649,297 @@ void ComputeCFDMesh( int set, int file_export_types )
     ErrorMgr.NoError();
 }
 
+/// Get/Set reference wing
+string GetVSPAERORefWingID()
+{
+    Vehicle* veh = GetVehicle();
+    if ( !veh )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "GetVSPAERORefWingID::Can't Find Vehicle" );
+        return string();
+    }
+
+    if ( VSPAEROMgr.m_RefFlag.Get() != vsp::COMPONENT_REF )
+    {
+        return string();
+    }
+
+    Geom* geom_ptr = veh->FindGeom( VSPAEROMgr.m_RefGeomID );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "GetVSPAERORefWingID::Can't Find Geom" );
+        return string();
+    }
+
+    return VSPAEROMgr.m_RefGeomID;
+}
+
+string SetVSPAERORefWingID( const string & geom_id )
+{
+    Vehicle* veh = GetVehicle();
+    if (!veh)
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetVSPAERORefWingID::Can't Find Vehicle" );
+        return string();
+    }
+
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetVSPAERORefWingID::Can't Find Geom" );
+        return  string();
+    }
+
+    VSPAEROMgr.m_RefGeomID = geom_id;
+    VSPAEROMgr.m_RefFlag = vsp::COMPONENT_REF;
+
+    ErrorMgr.NoError();
+
+    return VSPAEROMgr.m_RefGeomID;
+}
+
+void AutoGroupVSPAEROControlSurfaces()
+{
+    VSPAEROMgr.Update();
+    VSPAEROMgr.InitControlSurfaceGroups();
+}
+
+int GetNumControlSurfaceGroups()
+{
+    return VSPAEROMgr.GetControlSurfaceGroupVec().size();
+}
+
+//===================================================================//
+//===============       Analysis Functions        ===================//
+//===================================================================//
+
+int GetNumAnalysis()
+{
+  return AnalysisMgr.GetNumAnalysis();
+}
+
+vector < string > ListAnalysis()
+{
+    return AnalysisMgr.ListAnalysis();
+}
+
+vector < string > GetAnalysisInputNames( const string & analysis )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetAnalysisInputNames::Invalid Analysis ID " + analysis );
+        vector < string > ret;
+        return ret;
+    }
+
+    Analysis *a = AnalysisMgr.FindAnalysis( analysis );
+
+    return a->m_Inputs.GetAllDataNames();
+}
+
+string ExecAnalysis( const string & analysis )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "ExecAnalysis::Invalid Analysis ID " + analysis );
+        string ret;
+        return ret;
+    }
+
+    return AnalysisMgr.ExecAnalysis( analysis );
+}
+
+int GetNumAnalysisInputData( const string & analysis, const string & name )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetNumAnalysisInputData::Invalid Analysis ID " + analysis );
+        return 0;
+    }
+    ErrorMgr.NoError();
+
+    return AnalysisMgr.GetNumInputData( analysis, name );
+}
+
+int GetAnalysisInputType( const string & analysis, const string & name )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetAnalysisInputType::Invalid Analysis ID " + analysis );
+        return vsp::INVALID_TYPE;
+    }
+    ErrorMgr.NoError();
+
+    return AnalysisMgr.GetAnalysisInputType( analysis, name );
+}
+
+const vector< int > & GetIntAnalysisInput( const string & analysis, const string & name, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetIntAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetIntAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    return AnalysisMgr.GetIntInputData( analysis, name, index );
+}
+
+const std::vector< double > & GetDoubleAnalysisInput( const string & analysis, const string & name, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetDoubleAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetDoubleAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    return AnalysisMgr.GetDoubleInputData( analysis, name, index );
+}
+
+const std::vector< std::string > & GetStringAnalysisInput( const string & analysis, const string & name, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetStringAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetStringAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    return AnalysisMgr.GetStringInputData( analysis, name, index );
+}
+
+const std::vector< vec3d > & GetVec3dAnalysisInput( const string & analysis, const string & name, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetVec3dAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetVec3dAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    return AnalysisMgr.GetVec3dInputData( analysis, name, index );
+}
+
+void SetAnalysisInputDefaults( const string & analysis )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetIntAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    AnalysisMgr.SetAnalysisInputDefaults( analysis );
+}
+
+void SetIntAnalysisInput( const string & analysis, const string & name, const std::vector< int > & indata, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetIntAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "SetIntAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    AnalysisMgr.SetIntAnalysisInput( analysis, name, indata, index );
+}
+
+void SetDoubleAnalysisInput( const string & analysis, const string & name, const std::vector< double > & indata, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetDoubleAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "SetDoubleAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    AnalysisMgr.SetDoubleAnalysisInput( analysis, name, indata, index );
+}
+
+void SetStringAnalysisInput( const string & analysis, const string & name, const std::vector< std::string > & indata, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetStringAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "SetStringAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    AnalysisMgr.SetStringAnalysisInput( analysis, name, indata, index );
+}
+
+void SetVec3dAnalysisInput( const string & analysis, const string & name, const std::vector< vec3d > & indata, int index )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetVec3dAnalysisInput::Invalid Analysis ID " + analysis );
+    }
+    else if ( !AnalysisMgr.ValidAnalysisInputDataIndex( analysis, name, index ) )
+    {
+        ErrorMgr.AddError( VSP_CANT_FIND_NAME, "SetVec3dAnalysisInput::Can't Find Name " + name );
+    }
+    else
+    {
+        ErrorMgr.NoError();
+    }
+
+    AnalysisMgr.SetVec3dAnalysisInput( analysis, name, indata, index );
+}
+
+void PrintAnalysisInputs( const string & analysis_name )
+{
+    if ( !AnalysisMgr.ValidAnalysisName( analysis_name ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PrintAnalysisInputs::Invalid Analysis ID " + analysis_name );
+    }
+
+    AnalysisMgr.PrintAnalysisInputs( analysis_name );
+}
 
 //===================================================================//
 //===============       Results Functions         ===================//
@@ -715,6 +1004,17 @@ extern int GetNumData( const string & results_id, const string & data_name )
     }
     ErrorMgr.NoError();
     return ResultsMgr.GetNumData( results_id, data_name );
+}
+
+extern int GetResultsType( const string & results_id, const string & data_name )
+{
+    if ( !ResultsMgr.ValidResultsID( results_id ) )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "GetResultsType::Invalid ID " + results_id  );
+        return vsp::INVALID_TYPE;
+    }
+    ErrorMgr.NoError();
+    return ResultsMgr.GetResultsType( results_id, data_name );
 }
 
 /// Return the int data given the results id, data name and data index
@@ -857,7 +1157,10 @@ void WriteResultsCSVFile( const string & id, const string & file_name )
     ErrorMgr.NoError();
  }
 
-
+void PrintResults( const string &results_id )
+{
+    ResultsMgr.PrintResults( results_id );
+}
 
 //===================================================================//
 //===============        GUI Functions            ===================//
@@ -948,6 +1251,34 @@ string AddGeom( const string & type, const string & parent  )
 
     ErrorMgr.NoError();
     return ret_id;
+}
+
+void UpdateGeom( const string & geom_id )
+{
+    Vehicle* veh = GetVehicle();
+
+    veh->UpdateGeom( geom_id );
+
+    ErrorMgr.NoError();
+}
+
+
+void DeleteGeom( const string & geom_id )
+{
+    Vehicle* veh = GetVehicle();
+
+    veh->DeleteGeom( geom_id );
+
+    ErrorMgr.NoError();
+}
+
+void DeleteGeomVec( const vector< string > & del_vec )
+{
+    Vehicle* veh = GetVehicle();
+
+    veh->DeleteGeomVec( del_vec );
+
+    ErrorMgr.NoError();
 }
 
 /// Cut geometry and place it in the clipboard.  The clipboard is cleared before
@@ -1179,7 +1510,7 @@ string AddSubSurf( const string & geom_id, int type, int surfindex )
     ssurf = geom_ptr->AddSubSurf( type, surfindex );
     if ( !ssurf )
     {
-        ErrorMgr.AddError( VSP_INVALID_PTR, "AddSubSurface::Invalid Sub Surface Ptr "  );
+        ErrorMgr.AddError( VSP_INVALID_PTR, "AddSubSurf::Invalid Sub Surface Ptr "  );
         return string();
     }
     ssurf->Update();
@@ -1199,7 +1530,7 @@ string GetSubSurf( const string & geom_id, int index )
     }
     SubSurface* ssurf = NULL;
     ssurf = geom_ptr->GetSubSurf( index );
-     if ( !ssurf )
+    if ( !ssurf )
     {
         ErrorMgr.AddError( VSP_INVALID_PTR, "GetSubSurf::Invalid Sub Surface Ptr "  );
         return string();
@@ -1214,26 +1545,60 @@ void DeleteSubSurf( const string & geom_id, const string & sub_id )
     Geom* geom_ptr = veh->FindGeom( geom_id );
     if ( !geom_ptr )
     {
-        ErrorMgr.AddError( VSP_INVALID_PTR, "DeleteSubSurf::Can't Find Geom " + geom_id  );
+        ErrorMgr.AddError( VSP_INVALID_PTR, "DeleteSubSurf::Can't Find Geom " + geom_id );
         return;
     }
-
-    int index = -1;
-    vector< SubSurface* > svec = geom_ptr->GetSubSurfVec();
-    for ( int i = 0 ; i < (int)svec.size() ; i++ )
-    {
-        if ( svec[i]->GetID() == sub_id )
-            index = i;
-    }
+    int index = geom_ptr->GetSubSurfIndex( sub_id );
     if ( index == -1 )
     {
-        ErrorMgr.AddError( VSP_INVALID_PTR, "DeleteSubSurf::Can't Find SubSurf " + geom_id  );
+        ErrorMgr.AddError( VSP_INVALID_PTR, "DeleteSubSurf::Can't Find SubSurf " + geom_id );
         return;
     }
     geom_ptr->DelSubSurf( index );
     ErrorMgr.NoError();
+    return;
 }
 
+void SetSubSurfName( const std::string & geom_id, const std::string & sub_id, const std::string & name )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetSubSurfName::Can't Find Geom " + geom_id );
+        return;
+    }
+    SubSurface* ssurf = NULL;
+    ssurf = geom_ptr->GetSubSurf( sub_id );
+    if ( !ssurf )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetSubSurfName::Invalid Sub Surface Ptr " );
+        return;
+    }
+    ssurf->SetName( name );
+    ErrorMgr.NoError();
+    return;
+}
+
+std::string GetSubSurfName( const std::string & geom_id, const std::string & sub_id )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "GetSubSurfName::Can't Find Geom " + geom_id );
+        return string();
+    }
+    SubSurface* ssurf = NULL;
+    ssurf = geom_ptr->GetSubSurf( sub_id );
+    if ( !ssurf )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "GetSubSurfName::Invalid Sub Surface Ptr " );
+        return string();
+    }
+    ErrorMgr.NoError();
+    return ssurf->GetName();
+}
 
 void CutXSec( const string & geom_id, int index )
 {
@@ -1241,7 +1606,7 @@ void CutXSec( const string & geom_id, int index )
     Geom* geom_ptr = veh->FindGeom( geom_id );
     if ( !geom_ptr )
     {
-        ErrorMgr.AddError( VSP_INVALID_PTR, "CutXSec::Can't Find Geom " + geom_id  );
+        ErrorMgr.AddError( VSP_INVALID_PTR, "CutXSec::Can't Find Geom " + geom_id );
         return;
     }
 
@@ -1250,20 +1615,21 @@ void CutXSec( const string & geom_id, int index )
 
     ErrorMgr.NoError();
 }
+
 void CopyXSec( const string & geom_id, int index )
 {
     Vehicle* veh = GetVehicle();
     Geom* geom_ptr = veh->FindGeom( geom_id );
     if ( !geom_ptr )
     {
-        ErrorMgr.AddError( VSP_INVALID_PTR, "CopyXSec::Can't Find Geom " + geom_id  );
+        ErrorMgr.AddError( VSP_INVALID_PTR, "CopyXSec::Can't Find Geom " + geom_id );
         return;
     }
 
     geom_ptr->CopyXSec( index );
     ErrorMgr.NoError();
-
 }
+
 void PasteXSec( const string & geom_id, int index )
 {
     Vehicle* veh = GetVehicle();
@@ -1276,8 +1642,8 @@ void PasteXSec( const string & geom_id, int index )
 
     geom_ptr->PasteXSec( index );
     ErrorMgr.NoError();
-
 }
+
 void InsertXSec( const string & geom_id, int index, int type )
 {
     Vehicle* veh = GetVehicle();
@@ -1640,7 +2006,7 @@ string GetXSecParm( const string& xsec_id, const string& name )
         return xscparm;
     }
 
-    ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetXSecParm::Can't Find XSecCurve " + name  );
+    ErrorMgr.AddError( VSP_CANT_FIND_NAME, "GetXSecParm::Can't Find Parm " + name  );
     return string();
 }
 
@@ -1659,11 +2025,19 @@ vector<vec3d> ReadFileXSec( const string& xsec_id, const string& file_name )
     {
         FileXSec* file_xs = dynamic_cast<FileXSec*>( xs->GetXSecCurve() );
         assert( file_xs );
-        file_xs->ReadXsecFile( file_name );
-        return file_xs->GetUnityFilePnts();
+        if ( file_xs->ReadXsecFile( file_name ) )
+        {
+            ErrorMgr.NoError();
+            return file_xs->GetUnityFilePnts();
+        }
+        else
+        {
+            ErrorMgr.AddError( VSP_FILE_DOES_NOT_EXIST, "ReadFileXSec::Error reading fuselage file" );
+            return pnt_vec;
+        }
     }
 
-    ErrorMgr.NoError();
+    ErrorMgr.AddError( VSP_WRONG_XSEC_TYPE, "ReadFileXSec::XSec Not XS_FILE_FUSE Type " + xsec_id );
     return pnt_vec;
 }
 
@@ -1861,7 +2235,7 @@ void ReadFileAirfoil( const string& xsec_id, const string& file_name )
         }
         else
         {
-            ErrorMgr.AddError( VSP_WRONG_XSEC_TYPE, "ReadFileAirfoil::Error reading airfoil file" );
+            ErrorMgr.AddError( VSP_FILE_DOES_NOT_EXIST, "ReadFileAirfoil::Error reading airfoil file" );
             return;
         }
     }
@@ -2439,9 +2813,9 @@ double SetParmValUpdate( const string & parm_id, double val )
 
 /// Set the parm value.  If update is true, the parm container is updated.
 /// The final value of parm is returned.
-double SetParmValUpdate( const string & geom_id, const string & name, const string & group, double val )
+double SetParmValUpdate( const string & geom_id, const string & parm_name, const string & parm_group_name, double val )
 {
-    string parm_id = GetParm( geom_id, name, group );
+    string parm_id = GetParm( geom_id, parm_name, parm_group_name );
     Parm* p = ParmMgr.FindParm( parm_id );
     if ( !p )
     {
@@ -2646,7 +3020,7 @@ void SetParmDescript( const string & parm_id, const string & desc )
 }
 
 ///  Find a parm id given parm container, name and group
-string FindParm( const string & parm_container_id, const string & name, const string & group )
+string FindParm( const string & parm_container_id, const string& parm_name, const string& group_name )
 {
     ParmContainer* pc = ParmMgr.FindParmContainer( parm_container_id );
 
@@ -2656,7 +3030,7 @@ string FindParm( const string & parm_container_id, const string & name, const st
         return string();
     }
 
-   string parm_id = pc->FindParm( name, group );
+   string parm_id = pc->FindParm( parm_name, group_name );
    Parm* p = ParmMgr.FindParm( parm_id );
    if ( !p )
    {
@@ -2780,6 +3154,696 @@ vector< string > FindContainerParmIDs( const string & parm_container_id )
 
     ErrorMgr.NoError();
     return parm_vec;
+}
+
+
+//===================================================================//
+//===============           Snap To Functions          ==============//
+//===================================================================//
+double ComputeMinClearanceDistance( const string & geom_id, int set )
+{
+    Vehicle* veh = GetVehicle();
+
+    int old_set = veh->GetSnapToPtr()->m_CollisionSet;
+    veh->GetSnapToPtr()->m_CollisionSet = set;
+
+    vector< string > old_active_geom = veh->GetActiveGeomVec();
+    veh->SetActiveGeom( geom_id );
+
+    veh->GetSnapToPtr()->CheckClearance();
+    double min_clearance_dist = veh->GetSnapToPtr()->m_CollisionMinDist;
+
+    //==== Restore State ====//
+    veh->GetSnapToPtr()->m_CollisionSet = old_set;
+    veh->SetActiveGeomVec( old_active_geom );
+
+    return min_clearance_dist;
+}
+
+double SnapParm( const string & parm_id, double target_min_dist, bool inc_flag, int set  )
+{
+    Vehicle* veh = GetVehicle();
+
+    int old_set = veh->GetSnapToPtr()->m_CollisionSet;
+    veh->GetSnapToPtr()->m_CollisionSet = set;
+
+    double old_min_dist = veh->GetSnapToPtr()->m_CollisionTargetDist();
+    veh->GetSnapToPtr()->m_CollisionTargetDist = target_min_dist;
+
+    veh->GetSnapToPtr()->AdjParmToMinDist( parm_id, inc_flag );
+    double min_clearance_dist = veh->GetSnapToPtr()->m_CollisionMinDist;
+
+    //==== Restore State ====//
+    veh->GetSnapToPtr()->m_CollisionSet = old_set;
+    veh->GetSnapToPtr()->m_CollisionTargetDist = old_min_dist;
+
+    return min_clearance_dist;
+}
+
+//===================================================================//
+//===============     Variable Presets Functions       ==============//
+//===================================================================//
+
+void AddVarPresetGroup( const string &group_name )
+{
+    VarPresetMgr.AddGroup( group_name );
+    VarPresetMgr.SavePreset();
+
+    ErrorMgr.NoError();
+}
+
+void AddVarPresetSetting( const string &setting_name )
+{
+    VarPresetMgr.AddSetting( setting_name );
+    VarPresetMgr.SavePreset();
+
+    ErrorMgr.NoError();
+}
+
+void AddVarPresetParm( const string &parm_ID )
+{
+    VarPresetMgr.AddVar( parm_ID );
+    VarPresetMgr.SavePreset();
+
+    ErrorMgr.NoError();
+}
+
+void AddVarPresetParm( const string &parm_ID, const string &group_name )
+{
+    VarPresetMgr.GroupChange( group_name );
+    VarPresetMgr.AddVar( parm_ID );
+    VarPresetMgr.SavePreset();
+
+    ErrorMgr.NoError();
+}
+
+void EditVarPresetParm( const string &parm_ID, double parm_val )
+{
+    Parm *p = ParmMgr.FindParm( parm_ID );
+    if ( p )
+    {
+        p->Set( parm_val );
+    }
+    else
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "EditVarPresetParm::Can't Find Parm " + parm_ID  );
+    }
+    VarPresetMgr.SavePreset();
+}
+
+void EditVarPresetParm( const string &parm_ID, double parm_val, const string &group_name,
+    const string &setting_name )
+{
+    SwitchVarPreset( group_name, setting_name );
+    EditVarPresetParm( parm_ID, parm_val );
+}
+
+void DeleteVarPresetParm( const string &parm_ID )
+{
+    VarPresetMgr.SetWorkingParmID( parm_ID );
+    VarPresetMgr.DelCurrVar();
+    VarPresetMgr.SavePreset();
+
+    ErrorMgr.NoError();
+}
+
+void DeleteVarPresetParm( const string &parm_ID, const string &group_name )
+{
+    VarPresetMgr.GroupChange( group_name );
+    if (VarPresetMgr.GetActiveGroupText().compare( group_name ) == 0 )
+    {
+        ErrorMgr.NoError();
+    }
+    else
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_GROUPNAME, "DeleteVarPresetParm::Can't Find Group " + group_name );
+    }
+    DeleteVarPresetParm( parm_ID );
+}
+
+void SwitchVarPreset( const string &group_name, const string &setting_name )
+{
+    VarPresetMgr.GroupChange( group_name );
+    if (VarPresetMgr.GetActiveGroupText().compare( group_name ) == 0 )
+    {
+        ErrorMgr.NoError();
+    }
+    else
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_GROUPNAME, "SwitchVarPreset::Can't Find Group " + group_name );
+    }
+    VarPresetMgr.SettingChange( setting_name );
+    if (VarPresetMgr.GetActiveSettingText().compare( setting_name ) == 0 )
+    {
+        ErrorMgr.NoError();
+    }
+    else
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_SETNAME, "SwitchSaveParmGroup::Can't Find Setting " + setting_name  );
+    }
+}
+
+bool DeleteVarPresetSet( const string &group_name, const string &setting_name )
+{
+    if ( VarPresetMgr.DeletePreset( group_name, setting_name ) )
+    {
+        ErrorMgr.NoError();
+        return true;
+    }
+    else
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_GROUPNAME, "SwitchSaveParmGroup::Can't Find Group " + group_name  );
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_SETNAME, "SwitchSaveParmGroup::Can't Find Setting " + setting_name  );
+        return false;
+    }
+}
+
+string GetCurrentGroupName()
+{
+    return VarPresetMgr.GetActiveGroupText();
+}
+
+string GetCurrentSettingName()
+{
+    return VarPresetMgr.GetActiveSettingText();
+}
+
+vector <string> GetVarPresetGroupNames()
+{
+    ErrorMgr.NoError();
+    return VarPresetMgr.GetGroupNames();
+}
+
+vector <string> GetVarPresetSettingNamesWName( const string &group_name )
+{
+    vector <string> vec;
+    vec = VarPresetMgr.GetSettingNames( group_name );
+
+    if ( vec.empty() )
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_GROUPNAME, "SwitchSaveParmGroup::Can't Find Group " + group_name  );
+        return vec;
+    }
+    else
+    {
+        ErrorMgr.NoError();
+        return vec;
+    }
+}
+
+vector <string> GetVarPresetSettingNamesWIndex( int group_index )
+{
+    vector <string> vec;
+    vec = VarPresetMgr.GetSettingNames( group_index );
+
+    if ( vec.empty() )
+    {
+        ErrorMgr.AddError( VSP_INVALID_VARPRESET_GROUPNAME, "SwitchSaveParmGroup::Can't Find Group @ Index " + to_string( group_index ) );
+        return vec;
+    }
+    else
+    {
+        ErrorMgr.NoError();
+        return vec;
+    }
+}
+
+vector <double> GetVarPresetParmVals()
+{
+    ErrorMgr.NoError();
+    return VarPresetMgr.GetCurrentParmVals();
+}
+
+vector <double> GetVarPresetParmValsWNames( const string &group_name, const string &setting_name )
+{
+    ErrorMgr.NoError();
+    return VarPresetMgr.GetParmVals( group_name, setting_name );
+}
+
+vector <string> GetVarPresetParmIDs()
+{
+    ErrorMgr.NoError();
+    return VarPresetMgr.GetCurrentParmIDs();
+}
+
+vector <string> GetVarPresetParmIDsWName( const string &group_name )
+{
+    ErrorMgr.NoError();
+    return VarPresetMgr.GetParmIDs( group_name );
+}
+
+//===================================================================//
+//===============     Parametric Curve Functions       ==============//
+//===================================================================//
+
+void SetPCurve( const string & geom_id, const int & pcurveid, const vector < double > & tvec,
+    const vector < double > & valvec, const int & newtype )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetPCurve::Can't Find Geom " + geom_id );
+        return;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "SetPCurve::Geom doesn't support PCurves " + geom_id );
+        return;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "SetPCurve::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return;
+    }
+
+    pc->SetCurve( tvec, valvec, newtype );
+
+    ErrorMgr.NoError();
+}
+
+void PCurveConvertTo( const string & geom_id, const int & pcurveid, const int & newtype )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveConvertTo::Can't Find Geom " + geom_id );
+        return;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveConvertTo::Geom doesn't support PCurves " + geom_id );
+        return;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveConvertTo::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return;
+    }
+
+    pc->ConvertTo( newtype );
+
+    ErrorMgr.NoError();
+}
+
+int PCurveGetType( const std::string & geom_id, const int & pcurveid )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetType::Can't Find Geom " + geom_id );
+        return -1;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetType::Geom doesn't support PCurves " + geom_id );
+        return -1;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveGetType::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return -1;
+    }
+
+    ErrorMgr.NoError();
+
+    return pc->m_CurveType();
+}
+
+vector < double > PCurveGetTVec( const string & geom_id, const int & pcurveid )
+{
+    vector < double > retvec;
+
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetTVec::Can't Find Geom " + geom_id );
+        return retvec;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetTVec::Geom doesn't support PCurves " + geom_id );
+        return retvec;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveGetTVec::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return retvec;
+    }
+
+    retvec = pc->GetTVec();
+
+    ErrorMgr.NoError();
+
+    return retvec;
+}
+
+vector < double > PCurveGetValVec( const string & geom_id, const int & pcurveid )
+{
+    vector < double > retvec;
+
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetValVec::Can't Find Geom " + geom_id );
+        return retvec;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveGetValVec::Geom doesn't support PCurves " + geom_id );
+        return retvec;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveGetValVec::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return retvec;
+    }
+
+    retvec = pc->GetValVec();
+
+    ErrorMgr.NoError();
+
+    return retvec;
+}
+
+void PCurveDeletePt( const string & geom_id, const int & pcurveid, const int & indx )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveDeletePt::Can't Find Geom " + geom_id );
+        return;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveDeletePt::Geom doesn't support PCurves " + geom_id );
+        return;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveDeletePt::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return;
+    }
+
+    return pc->DeletePt( indx );
+
+    ErrorMgr.NoError();
+}
+
+void PCurveSplit( const string & geom_id, const int & pcurveid, const double & tsplit )
+{
+    Vehicle* veh = GetVehicle();
+    Geom* geom_ptr = veh->FindGeom( geom_id );
+    if ( !geom_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveSplit::Can't Find Geom " + geom_id );
+        return;
+    }
+
+    PropGeom* prop_ptr = dynamic_cast < PropGeom* > (geom_ptr );
+    if ( !prop_ptr )
+    {
+        ErrorMgr.AddError( VSP_INVALID_PTR, "PCurveSplit::Geom doesn't support PCurves " + geom_id );
+        return;
+    }
+
+    PCurve *pc = NULL;
+
+    if ( prop_ptr )
+    {
+        pc = prop_ptr->GetPCurve( pcurveid );
+    }
+
+    if ( !pc )
+    {
+        ErrorMgr.AddError( VSP_INVALID_ID, "PCurveSplit::PCurve not found " + geom_id + " " + to_string( pcurveid ) );
+        return;
+    }
+
+    return pc->Split( tsplit );
+
+    ErrorMgr.NoError();
+}
+
+//===================================================================//
+//===============    Parasite Drag Tool Functions      ==============//
+//===================================================================//
+
+void AddExcrescence(const std::string &excresName, const int & excresType, const double & excresVal)
+{
+    ParasiteDragMgr.AddExcrescence(excresName,excresType,excresVal);
+
+    ErrorMgr.NoError();
+}
+
+void DeleteExcrescence(const int & index)
+{
+    ParasiteDragMgr.DeleteExcrescence(index);
+
+    ErrorMgr.NoError();
+}
+
+void WriteAtmosphereCSVFile(const std::string & file_name, const int atmos_type)
+{
+    const static double arr[] = {0.0, 5000.0, 10000.0, 10999.0, 11001.0, 15000.0, 19999.0, 20000.0,
+    20001.0, 25000.0, 30000.0, 31999.0, 32001.0, 35000.0, 40000.0, 45000.0, 46999.0, 47001.0, 50000.0,
+    50999.0, 51001.0, 55000.0, 60000.0, 65000.0, 70000.0, 70999.0, 71001.0, 75000.0, 80000.0, 84851.0,
+    84853.0, 85000.0, 90000.0}; //meters
+    vector < double > AltTestPoints (arr, arr + sizeof(arr) / sizeof(arr[0]) );
+
+    double temp, pres, pres_ratio, rho_ratio;
+    vector < double > temp_vec, pres_vec, pres_ratio_vec, rho_ratio_vec;
+
+    for (size_t i = 0; i < AltTestPoints.size(); ++i )
+    {
+        vsp::CalcAtmosphere( AltTestPoints[i], 0.0, atmos_type,
+            temp, pres, pres_ratio, rho_ratio );
+        temp_vec.push_back( temp );
+        pres_vec.push_back( pres );
+        pres_ratio_vec.push_back( pres_ratio );
+        rho_ratio_vec.push_back( rho_ratio );
+    }
+    Results* res = ResultsMgr.CreateResults("Atmosphere");
+    res->Add(NameValData("Alt", AltTestPoints));
+    res->Add(NameValData("Temp", temp_vec));
+    res->Add(NameValData("Pres", pres_vec));
+    res->Add(NameValData("Pres_Ratio", pres_ratio_vec));
+    res->Add(NameValData("Rho_Ratio", rho_ratio_vec));
+    res->WriteCSVFile( file_name );
+}
+
+void CalcAtmosphere(const double & alt, const double & delta_temp, const int & atmos_type,
+    double & temp, double & pres, double & pres_ratio, double & rho_ratio )
+{
+    Atmosphere atmos;
+
+    switch(atmos_type)
+    {
+    case vsp::ATMOS_TYPE_US_STANDARD_1976:
+        atmos.USStandardAtmosphere1976( alt, delta_temp, vsp::PD_UNITS_METRIC, vsp::TEMP_UNIT_K, vsp::PRES_UNIT_KPA);
+        break;
+
+    case vsp::ATMOS_TYPE_HERRINGTON_1966:
+        atmos.USAF1966( alt, delta_temp, vsp::PD_UNITS_METRIC, vsp::TEMP_UNIT_K, vsp::PRES_UNIT_KPA);
+        break;
+
+    default:
+        break;
+    }
+
+    temp = atmos.GetTemp();
+    pres = atmos.GetPres();
+    pres_ratio = atmos.GetPressureRatio();
+    rho_ratio = atmos.GetDensityRatio();
+
+    ErrorMgr.NoError();
+}
+
+void WriteBodyFFCSVFile(const std::string & file_name)
+{
+    Results* res = ResultsMgr.CreateResults("Body_Form_Factor");
+    char str[256];
+    vector < double > body_ff_vec, FR, ref_leng, max_x_area;
+    vector < double > dol_array = linspace( 0.0, 0.3, 200 );
+    res->Add(NameValData("D_L", dol_array));
+    ref_leng.push_back(10.0);
+    max_x_area.push_back( PI * 1.0 * 1.0 );
+    FR.push_back(ref_leng.back() / sqrt(max_x_area.back()) );
+    for (size_t body_ff_case = 0; body_ff_case <= vsp::FF_B_JENKINSON_AFT_FUSE_NACELLE; ++body_ff_case )
+    {
+        for (size_t j = 0; j < dol_array.size(); ++j )
+        {
+            body_ff_vec.push_back( ParasiteDragMgr.CalcFFBody( 1.0/dol_array[j], FR[0], body_ff_case, ref_leng[0], max_x_area[0] ) );
+        }
+        sprintf( str, "%s", ParasiteDragMgr.AssignFFBodyEqnName( body_ff_case ).c_str());
+        res->Add(NameValData(str, body_ff_vec));
+        body_ff_vec.clear();
+    }
+    res->Add(NameValData("Ref_Leng", ref_leng));
+    res->Add(NameValData("Max_X_Area", max_x_area));
+    res->WriteCSVFile( file_name );
+}
+
+void WriteWingFFCSVFile(const std::string & file_name)
+{
+    Results* res = ResultsMgr.CreateResults("Wing_Form_Factor");
+    char str[256];
+    vector < double > wing_ff_vec;
+    vector < double > toc_array = linspace( 0.0, 0.205, 200 );
+    vector < double > perc_lam, sweep25, sweep50;
+    perc_lam.push_back(0.0);
+    sweep25.push_back(30.0 * PI / 180.0);
+    sweep50.push_back(30.0 * PI / 180.0);
+    ParasiteDragMgr.m_Atmos.SetMach(0.8);
+    res->Add(NameValData("T_C", toc_array));
+    for (size_t wing_ff_case = 0; wing_ff_case < vsp::FF_W_SCHEMENSKY_SUPERCRITICAL_AF; ++wing_ff_case )
+    {
+        for (size_t j = 0; j < toc_array.size(); ++j )
+        {
+            wing_ff_vec.push_back( ParasiteDragMgr.CalcFFWing( toc_array[j], wing_ff_case, perc_lam[0], sweep25[0], sweep50[0]) );
+        }
+        sprintf( str, "%s", ParasiteDragMgr.AssignFFWingEqnName( wing_ff_case ).c_str());
+        res->Add(NameValData(str, wing_ff_vec));
+        wing_ff_vec.clear();
+    }
+    res->WriteCSVFile( file_name );
+}
+
+void WriteCfEqnCSVFile(const std::string & file_name)
+{
+    Results* res = ResultsMgr.CreateResults("Friction_Coefficient");
+    char str[256];
+    vector < double > lam_cf_vec, turb_cf_vec, ref_leng;
+    vector < double > ReyIn_array = logspace( 3, 10, 500 );
+    vector < double > roughness, gamma, taw_tw_ratio, te_tw_ratio;
+    roughness.push_back(0.01);
+    gamma.push_back(1.4);
+    taw_tw_ratio.push_back(1.0);
+    te_tw_ratio.push_back(1.0);
+    ref_leng.push_back(1.0);
+
+    for (size_t cf_case = 0; cf_case <= vsp::CF_TURB_WHITE_CHRISTOPH_COMPRESSIBLE; ++cf_case )
+    {
+        for (size_t j = 0; j < ReyIn_array.size(); ++j )
+        {
+            turb_cf_vec.push_back( ParasiteDragMgr.CalcTurbCf( ReyIn_array[j], ref_leng[0], cf_case, roughness[0], gamma[0], taw_tw_ratio[0], te_tw_ratio[0]) );
+        }
+        sprintf( str, "%s", ParasiteDragMgr.AssignTurbCfEqnName( cf_case ).c_str());
+        res->Add(NameValData(str, turb_cf_vec));
+        turb_cf_vec.clear();
+    }
+
+    for (size_t cf_case = 0; cf_case < vsp::CF_LAM_BLASIUS_W_HEAT; ++cf_case)
+    {
+        for (size_t i = 0; i < ReyIn_array.size(); ++i)
+        {
+            lam_cf_vec.push_back(ParasiteDragMgr.CalcLamCf(ReyIn_array[i], cf_case));
+        }
+        sprintf( str, "%s", ParasiteDragMgr.AssignLamCfEqnName( cf_case ).c_str());
+        res->Add(NameValData(str, lam_cf_vec));
+        lam_cf_vec.clear();
+    }
+
+    res->Add(NameValData("ReyIn", ReyIn_array));
+    res->Add(NameValData("Ref_Leng", ref_leng));
+    res->WriteCSVFile( file_name );
+}
+
+void WritePartialCfMethodCSVFile(const std::string & file_name)
+{
+    Results* res = ResultsMgr.CreateResults("Friction_Coefficient");
+    char str[256];
+    vector < double > cf_vec, ref_leng;
+    vector < double > lam_perc_array = linspace( 0, 100, 1000 );
+    vector < double > ReyIn_array, reql_array;
+    ReyIn_array.push_back( 1.0e7 );
+    reql_array.push_back( 1.0e7 );
+    vector < double > roughness, taw_tw_ratio, te_tw_ratio;
+    roughness.push_back(0.0);
+    taw_tw_ratio.push_back(1.0);
+    te_tw_ratio.push_back(1.0);
+    ref_leng.push_back(1.0);
+
+    for (size_t i = 0; i < lam_perc_array.size(); ++i )
+    {
+        cf_vec.push_back( ParasiteDragMgr.CalcPartialTurbulence( lam_perc_array[i], ReyIn_array[0], ref_leng[0], reql_array[0],
+            roughness[0], taw_tw_ratio[0], te_tw_ratio[0]) );
+    }
+
+    res->Add(NameValData("LamPerc", lam_perc_array));
+    res->Add(NameValData("Cf", cf_vec));
+    res->Add(NameValData("ReyIn", ReyIn_array));
+    res->Add(NameValData("Ref_Leng", ref_leng));
+    res->Add(NameValData("Re\/L", reql_array));
+    res->Add(NameValData("Roughness", roughness));
+    res->Add(NameValData("Taw\/Tw", taw_tw_ratio));
+    res->Add(NameValData("Te\/Tw", te_tw_ratio));
+    res->WriteCSVFile( file_name );
 }
 
 //============================================================================//

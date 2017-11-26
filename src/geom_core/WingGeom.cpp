@@ -7,14 +7,15 @@
 
 #include "WingGeom.h"
 #include "ParmMgr.h"
-#include "VspSurf.h"
 #include "Vehicle.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
-#include <assert.h>
+#include "Cluster.h"
+
+#include "eli/geom/intersect/intersect_plane.hpp"
 
 using namespace vsp;
 
+typedef piecewise_surface_type::point_type surface_point_type;
 
 //==== Constructor ====//
 WingDriverGroup::WingDriverGroup() : DriverGroup( NUM_WSECT_DRIVER, 3 )
@@ -488,7 +489,125 @@ bool WingDriverGroup::ValidDrivers( vector< int > choices )
 //=========================================================================================================//
 
 //==== Constructor ====//
-WingSect::WingSect( XSecCurve *xsc ) : XSec( xsc)
+BlendWingSect::BlendWingSect( XSecCurve *xsc ) : XSec( xsc)
+{
+    m_InLESweep.Init( "InLESweep", m_GroupName, this, 0.0, -89.0, 89.0 );
+    m_InTESweep.Init( "InTESweep", m_GroupName, this, 0.0, -89.0, 89.0 );
+    m_InLEDihedral.Init( "InLEDihedral", m_GroupName, this, 0.0, -360.0, 360.0 );
+    m_InTEDihedral.Init( "InTEDihedral", m_GroupName, this, 0.0, -360.0, 360.0 );
+    m_InLEStrength.Init( "InLEStrength", m_GroupName, this,  1.0, 0.0, 1e12 );
+    m_InTEStrength.Init( "InTEStrength", m_GroupName, this,  1.0, 0.0, 1e12 );
+
+    m_OutLESweep.Init( "OutLESweep", m_GroupName, this, 0.0, -89.0, 89.0 );
+    m_OutTESweep.Init( "OutTESweep", m_GroupName, this, 0.0, -89.0, 89.0 );
+    m_OutLEDihedral.Init( "OutLEDihedral", m_GroupName, this, 0.0, -360.0, 360.0 );
+    m_OutTEDihedral.Init( "OutTEDihedral", m_GroupName, this, 0.0, -360.0, 360.0 );
+    m_OutLEStrength.Init( "OutLEStrength", m_GroupName, this,  1.0, 0.0, 1e12 );
+    m_OutTEStrength.Init( "OutTEStrength", m_GroupName, this,  1.0, 0.0, 1e12 );
+
+    m_InLEMode.Init( "InLEMode", m_GroupName, this, BLEND_FREE, BLEND_FREE, BLEND_NUM_TYPES - 1 );
+    m_OutLEMode.Init( "OutLEMode", m_GroupName, this, BLEND_FREE, BLEND_FREE, BLEND_NUM_TYPES - 1 );
+    m_InTEMode.Init( "InTEMode", m_GroupName, this, BLEND_FREE, BLEND_FREE, BLEND_NUM_TYPES - 1 );
+    m_OutTEMode.Init( "OutTEMode", m_GroupName, this, BLEND_FREE, BLEND_FREE, BLEND_NUM_TYPES - 1 );
+
+}
+
+void BlendWingSect::ValidateParms( bool first, bool last )
+{
+
+    if ( m_InLEMode() != BLEND_ANGLES )
+    {
+        if ( m_InTEMode() == BLEND_MATCH_LE_ANGLES )
+        {
+            m_InTEMode = BLEND_ANGLES;
+        }
+
+        if ( m_OutLEMode() == BLEND_MATCH_IN_ANGLES )
+        {
+            m_OutLEMode = BLEND_ANGLES;
+        }
+    }
+
+    if ( m_InTEMode() != BLEND_ANGLES && m_InTEMode() != BLEND_MATCH_LE_ANGLES )
+    {
+        if ( m_OutTEMode() == BLEND_MATCH_IN_ANGLES )
+        {
+            m_OutTEMode = BLEND_ANGLES;
+        }
+    }
+
+    if ( m_OutLEMode() != BLEND_ANGLES && m_OutLEMode() != BLEND_MATCH_IN_ANGLES )
+    {
+        if ( m_OutTEMode() == BLEND_MATCH_LE_ANGLES )
+        {
+            m_OutTEMode = BLEND_ANGLES;
+        }
+    }
+
+    if ( first )
+    {
+        m_InLEMode = BLEND_FREE;
+        m_InTEMode = BLEND_FREE;
+
+        if ( m_OutLEMode() == BLEND_MATCH_IN_LE_TRAP || m_OutLEMode() == BLEND_MATCH_IN_TE_TRAP )
+        {
+            m_OutLEMode = BLEND_ANGLES;
+        }
+
+        if ( m_OutTEMode() == BLEND_MATCH_IN_LE_TRAP || m_OutTEMode() == BLEND_MATCH_IN_TE_TRAP )
+        {
+            m_OutTEMode = BLEND_ANGLES;
+        }
+    }
+
+    if ( last )
+    {
+        if ( m_InLEMode() == BLEND_MATCH_OUT_LE_TRAP || m_InLEMode() == BLEND_MATCH_OUT_TE_TRAP )
+        {
+            m_InLEMode = BLEND_ANGLES;
+        }
+
+        if ( m_InTEMode() == BLEND_MATCH_OUT_LE_TRAP || m_InTEMode() == BLEND_MATCH_OUT_TE_TRAP )
+        {
+            m_InTEMode = BLEND_ANGLES;
+        }
+
+        m_OutLEMode = BLEND_FREE;
+        m_OutTEMode = BLEND_FREE;
+    }
+
+    if ( m_OutLEMode() == BLEND_MATCH_IN_ANGLES )
+    {
+        m_OutLESweep = m_InLESweep();
+        m_OutLEDihedral = m_InLEDihedral();
+    }
+
+    if ( m_InTEMode() == BLEND_MATCH_LE_ANGLES )
+    {
+        m_InTESweep = m_InLESweep();
+        m_InTEDihedral = m_InLEDihedral();
+    }
+
+    if ( m_OutTEMode() == BLEND_MATCH_IN_ANGLES )
+    {
+        m_OutTESweep = m_InTESweep();
+        m_OutTEDihedral = m_InTEDihedral();
+    }
+
+    if ( m_OutTEMode() == BLEND_MATCH_LE_ANGLES )
+    {
+        m_OutTESweep = m_OutLESweep();
+        m_OutTEDihedral = m_OutLEDihedral();
+    }
+}
+
+
+//=========================================================================================================//
+//=========================================================================================================//
+//=========================================================================================================//
+
+//==== Constructor ====//
+WingSect::WingSect( XSecCurve *xsc ) : BlendWingSect( xsc)
 {
     m_Type = vsp::XSEC_WING;
 
@@ -530,9 +649,9 @@ WingSect::WingSect( XSecCurve *xsc ) : XSec( xsc)
     m_Dihedral.Init( "Dihedral", m_GroupName, this, 0.0, -360.0, 360.0 );
     m_Dihedral.SetDescript( "Dihedral of Wing Section" );
 
-    m_RootCluster.Init( "InCluster", m_GroupName, this, 1.0, 0.0, 2.0 );
+    m_RootCluster.Init( "InCluster", m_GroupName, this, 1.0, 1e-4, 10.0 );
     m_RootCluster.SetDescript( "Inboard Tess Cluster Control" );
-    m_TipCluster.Init( "OutCluster", m_GroupName, this, 1.0, 0.0, 2.0 );
+    m_TipCluster.Init( "OutCluster", m_GroupName, this, 1.0, 1e-4, 10.0 );
     m_TipCluster.SetDescript( "Outboard Tess Cluster Control" );
 }
 
@@ -837,6 +956,266 @@ void WingSect::ReadV2File( xmlNodePtr &sec_node )
     m_SectTessU = XmlUtil::FindInt( sec_node, "NumInterpXsecs", m_SectTessU() );
 }
 
+void WingSect::GetJoints( bool first, bool last,
+                        joint_data_type &te_joint, const curve_point_type &te_point, const curve_point_type &te_in, const curve_point_type &te_out,
+                          const double &te_in_str, const double &te_out_str,
+                        joint_data_type &le_joint, const curve_point_type &le_point, const curve_point_type &le_in, const curve_point_type &le_out,
+                          const double &le_in_str, const double &le_out_str )
+{
+    ValidateParms( first, last );
+
+    double tte = 0.0;
+    double tle = 2.0;
+
+    te_joint.set_f( te_point );
+    le_joint.set_f( le_point );
+
+    te_joint.set_continuity( piecewise_general_curve_creator_type::joint_continuity::C0 );
+    le_joint.set_continuity( piecewise_general_curve_creator_type::joint_continuity::C0 );
+
+    vec3d tangent;
+    vec3d normal;
+    curve_point_type tgt;
+
+    switch ( m_InLEMode() ) {
+        case BLEND_ANGLES :
+        case BLEND_MATCH_IN_ANGLES :
+        case BLEND_MATCH_LE_ANGLES :
+        {
+            GetTanNormVec(tle, -m_InLESweep() * PI / 180.0, -m_InLEDihedral() * PI / 180.0, tangent, normal);
+            tangent = tangent * m_InLEStrength() * le_in_str;
+            tangent.get_pnt(tgt);
+            le_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_LE_TRAP :
+        {
+            tgt = le_in * m_InLEStrength() * le_in_str;
+            le_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_TE_TRAP :
+        {
+            tgt = te_in * m_InLEStrength() * le_in_str;
+            le_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_LE_TRAP :
+        {
+            tgt = le_out * m_InLEStrength() * le_in_str;
+            le_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_TE_TRAP :
+        {
+            tgt = te_out * m_InLEStrength() * le_in_str;
+            le_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_FREE :
+        {
+            break;
+        }
+    }
+
+    switch ( m_InTEMode() ) {
+        case BLEND_ANGLES :
+        case BLEND_MATCH_IN_ANGLES :
+        case BLEND_MATCH_LE_ANGLES :
+        {
+            GetTanNormVec( tte, m_InTESweep()*PI/180.0, m_InTEDihedral()*PI/180.0, tangent, normal );
+            tangent = tangent * m_InTEStrength() * te_in_str;
+            tangent.get_pnt( tgt );
+            te_joint.set_left_fp( tgt );
+            break;
+        }
+        case BLEND_MATCH_IN_LE_TRAP :
+        {
+            tgt = le_in * m_InTEStrength() * te_in_str;
+            te_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_TE_TRAP :
+        {
+            tgt = te_in * m_InTEStrength() * te_in_str;
+            te_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_LE_TRAP :
+        {
+            tgt = le_out * m_InTEStrength() * te_in_str;
+            te_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_TE_TRAP :
+        {
+            tgt = te_out * m_InTEStrength() * te_in_str;
+            te_joint.set_left_fp(tgt);
+            break;
+        }
+        case BLEND_FREE :
+        {
+            break;
+        }
+    }
+
+
+    switch ( m_OutLEMode() ) {
+        case BLEND_ANGLES :
+        case BLEND_MATCH_IN_ANGLES :
+        case BLEND_MATCH_LE_ANGLES :
+        {
+            GetTanNormVec(tle, -m_OutLESweep() * PI / 180.0, m_OutLEDihedral() * PI / 180.0, tangent, normal);
+            tangent = tangent * m_OutLEStrength() * le_out_str;
+            tangent.get_pnt(tgt);
+            le_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_LE_TRAP :
+        {
+            tgt = le_in * m_OutLEStrength() * le_out_str;
+            le_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_TE_TRAP :
+        {
+            tgt = te_in * m_OutLEStrength() * le_out_str;
+            le_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_LE_TRAP :
+        {
+            tgt = le_out * m_OutLEStrength() * le_out_str;
+            le_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_TE_TRAP :
+        {
+            tgt = te_out * m_OutLEStrength() * le_out_str;
+            le_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_FREE :
+        {
+            break;
+        }
+    }
+
+    switch ( m_OutTEMode() ) {
+        case BLEND_ANGLES :
+        case BLEND_MATCH_IN_ANGLES :
+        case BLEND_MATCH_LE_ANGLES :
+        {
+            GetTanNormVec( tte, m_OutTESweep()*PI/180.0, -m_OutTEDihedral()*PI/180.0, tangent, normal );
+            tangent = tangent * m_OutTEStrength() * te_out_str;
+            tangent.get_pnt( tgt );
+            te_joint.set_right_fp( tgt );
+            break;
+        }
+        case BLEND_MATCH_IN_LE_TRAP :
+        {
+            tgt = le_in * m_OutTEStrength() * te_out_str;
+            te_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_IN_TE_TRAP :
+        {
+            tgt = te_in * m_OutTEStrength() * te_out_str;
+            te_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_LE_TRAP :
+        {
+            tgt = le_out * m_OutTEStrength() * te_out_str;
+            te_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_MATCH_OUT_TE_TRAP :
+        {
+            tgt = te_out * m_OutTEStrength() * te_out_str;
+            te_joint.set_right_fp(tgt);
+            break;
+        }
+        case BLEND_FREE :
+        {
+            break;
+        }
+    }
+
+}
+
+
+void WingSect::GetPoints( curve_point_type &te_point, curve_point_type &le_point )
+{
+    double tte = 0.0;
+    double tle = 2.0;
+
+    // First GetCurve() forces Update() call if needed;
+    piecewise_curve_type crv = GetCurve().GetCurve();
+    te_point = crv.f( tte );
+    le_point = crv.f( tle );
+}
+
+void WingSect::SetUnsetParms( int irib, const VspSurf &surf, const double &te_in_str, const double &te_out_str, const double &le_in_str, const double &le_out_str )
+{
+    double thetaL, phiL, strengthL, curvatureL;
+    double thetaR, phiR, strengthR, curvatureR;
+
+    GetAngStrCrv( 0.0,  irib,
+        thetaL, phiL, strengthL, curvatureL,
+        thetaR, phiR, strengthR, curvatureR,
+        surf );
+
+    if ( m_InTEMode() != BLEND_ANGLES && m_InTEMode() != BLEND_MATCH_LE_ANGLES )
+    {
+        m_InTESweep = 180.0-thetaL*180.0/PI;
+        m_InTEDihedral = asin ( sin ( phiL ) / cos( m_InTESweep() * PI / 180.0 ) ) * 180.0 / PI;
+    }
+
+    if ( m_InTEMode() == BLEND_FREE )
+    {
+        m_InTEStrength = strengthL / te_in_str;
+    }
+
+    if ( m_OutTEMode() != BLEND_ANGLES && m_OutTEMode() != BLEND_MATCH_IN_ANGLES && m_OutTEMode() != BLEND_MATCH_LE_ANGLES )
+    {
+        m_OutTESweep = 180.0-thetaR*180.0/PI;
+        m_OutTEDihedral = -asin ( sin ( phiR ) / cos( m_OutTESweep() * PI / 180.0 ) ) * 180.0 / PI;
+    }
+
+    if ( m_OutTEMode() == BLEND_FREE )
+    {
+        m_OutTEStrength = strengthR / te_out_str;
+    }
+
+    GetAngStrCrv( 2.0,  irib,
+        thetaL, phiL, strengthL, curvatureL,
+        thetaR, phiR, strengthR, curvatureR,
+        surf );
+
+    if ( m_InLEMode() != BLEND_ANGLES )
+    {
+        m_InLESweep = -(180.0-thetaL*180.0/PI);
+        m_InLEDihedral = -asin ( sin ( phiL ) / cos( m_InLESweep() * PI / 180.0 ) ) * 180.0 / PI;
+    }
+
+    if ( m_InLEMode() == BLEND_FREE )
+    {
+        m_InLEStrength = strengthL / le_in_str;
+    }
+
+    if ( m_OutLEMode() != BLEND_ANGLES && m_OutLEMode() != BLEND_MATCH_IN_ANGLES )
+    {
+        m_OutLESweep = -(180.0-thetaR*180.0/PI);
+        m_OutLEDihedral = asin ( sin ( phiR) / cos( m_OutLESweep() * PI / 180.0 ) ) * 180.0 / PI;
+    }
+
+    if ( m_OutLEMode() == BLEND_FREE )
+    {
+        m_OutLEStrength = strengthR / le_out_str;
+    }
+}
+
 //=========================================================================================================//
 //=========================================================================================================//
 //=========================================================================================================//
@@ -856,13 +1235,13 @@ WingGeom::WingGeom( Vehicle* vehicle_ptr ) : GeomXSec( vehicle_ptr )
     m_XSecSurf.SetParentContainer( GetID() );
     m_XSecSurf.SetBasicOrientation( vsp::Y_DIR, X_DIR, XS_SHIFT_LE, true );
 
-    m_RelativeDihedralFlag.Init("RelativeDihedralFlag", m_Name, this, 0, 0, 1, true );
+    m_RelativeDihedralFlag.Init("RelativeDihedralFlag", m_Name, this, 0, 0, 1 );
     m_RelativeDihedralFlag.SetDescript( "Relative or Absolute Dihedral" );
 
-    m_RelativeTwistFlag.Init("RelativeTwistFlag", m_Name, this, 0, 0, 1, true );
+    m_RelativeTwistFlag.Init("RelativeTwistFlag", m_Name, this, 0, 0, 1 );
     m_RelativeTwistFlag.SetDescript( "Relative or Absolute Twist" );
 
-    m_RotateAirfoilMatchDiedralFlag.Init("RotateAirfoilMatchDideralFlag", m_Name, this, 0, 0, 1, true );
+    m_RotateAirfoilMatchDiedralFlag.Init("RotateAirfoilMatchDideralFlag", m_Name, this, 0, 0, 1 );
     m_RotateAirfoilMatchDiedralFlag.SetDescript( "Rotate Airfoil To Stay Tangent To Dihedral (or Not)" );
 
     m_TotalSpan.Init( "TotalSpan", m_Name, this, 1.0, 1e-6, 1000000.0 );
@@ -877,18 +1256,24 @@ WingGeom::WingGeom( Vehicle* vehicle_ptr ) : GeomXSec( vehicle_ptr )
     m_TotalArea.Init( "TotalArea", m_Name, this, 1.0, 1e-10, 1.0e12 );
     m_TotalArea.SetDescript( "Total Planform Area" );
 
-    m_LECluster.Init( "LECluster", m_Name, this, 1.0, 0.0, 2.0 );
+    m_LECluster.Init( "LECluster", m_Name, this, 0.25, 1e-4, 10.0 );
     m_LECluster.SetDescript( "LE Tess Cluster Control" );
 
-    m_TECluster.Init( "TECluster", m_Name, this, 1.0, 0.0, 2.0 );
+    m_TECluster.Init( "TECluster", m_Name, this, 0.25, 1e-4, 10.0 );
     m_TECluster.SetDescript( "TE Tess Cluster Control" );
+
+    m_SmallPanelW.Init( "SmallPanelW", m_Name, this, 0.0, 0.0, 1e12 );
+    m_SmallPanelW.SetDescript( "Smallest LE/TE panel width");
+
+    m_MaxGrowth.Init( "MaxGrowth", m_Name, this, 1.0, 1.0, 1e12);
+    m_MaxGrowth.SetDescript( "Maximum chordwise panel growth ratio" );
 
     //==== rename capping controls for wing specific terminology ====//
     m_CapUMinOption.SetDescript("Type of End Cap on Wing Root");
-    m_CapUMinOption.Parm::Set(VspSurf::FLAT_END_CAP);
+    m_CapUMinOption.Parm::Set(FLAT_END_CAP);
     m_CapUMinTess.SetDescript("Number of tessellated curves on Wing Root and Tip");
     m_CapUMaxOption.SetDescript("Type of End Cap on Wing Tip");
-    m_CapUMaxOption.Parm::Set(VspSurf::FLAT_END_CAP);
+    m_CapUMaxOption.Parm::Set(FLAT_END_CAP);
 
     //==== Init Parms ====//
     m_TessU = 16;
@@ -945,17 +1330,23 @@ void WingGeom::Scale()
 {
     double currentScale = m_Scale() / m_LastScale();
 
-    if( abs( 1.0 - currentScale ) > 1e-6 )
+    if( std::abs( 1.0 - currentScale ) > 1e-6 )
     {
         //==== Adjust Sections Area ====//
         vector< WingSect* > ws_vec = GetWingSectVec();
-        for ( int i = 1 ; i < (int)ws_vec.size() ; i++ )
+        for ( int i = 0 ; i < (int)ws_vec.size() ; i++ )
         {
             WingSect* ws = ws_vec[i];
             if ( ws )
             {
-                double area = ws->m_Area()*currentScale*currentScale;
-                ws->ForceAspectTaperArea( ws->m_Aspect(), ws->m_Taper(), area );
+                if (i > 0) // Don't operate on 0th section.
+                {
+                    double area = ws->m_Area() * currentScale * currentScale;
+                    ws->ForceAspectTaperArea(ws->m_Aspect(), ws->m_Taper(), area);
+                }
+
+                // Operate on all sections.
+                ws->SetScale( currentScale );
             }
         }
 
@@ -969,13 +1360,13 @@ void WingGeom::AddDefaultSources( double base_len )
     double nseg = ( ( int ) ws_vec.size() ) - 1;
     double ustart = 0.0;
 
-    if ( m_CapUMinOption() != VspSurf::NO_END_CAP )
+    if ( m_CapUMinOption() != NO_END_CAP )
     {
         nseg = nseg + 1.0;
         ustart = ustart  + 1.0;
     }
 
-    if ( m_CapUMaxOption() != VspSurf::NO_END_CAP )
+    if ( m_CapUMaxOption() != NO_END_CAP )
     {
         nseg = nseg + 1.0;;
     }
@@ -1304,8 +1695,16 @@ void WingGeom::UpdateSurf()
     m_TessUVec.clear();
     m_RootClusterVec.clear();
     m_TipClusterVec.clear();
+    m_UMergeVec.clear();
 
-    vector< VspCurve > crv_vec( m_XSecSurf.NumXSec() );
+    int nxsec = m_XSecSurf.NumXSec();
+    vector< VspCurve > crv_vec( nxsec );
+    vector< VspCurve > untransformed_crv_vec( nxsec );
+
+    vector< Matrix4d > transform_vec( nxsec );
+
+    vector< curve_point_type > te_point_vec( nxsec );
+    vector< curve_point_type > le_point_vec( nxsec );
 
     //==== Compute Parameters For Each Section ====//
     double total_span = 0.0;
@@ -1314,7 +1713,7 @@ void WingGeom::UpdateSurf()
     double total_twist = 0.0;
 
     //==== Load End Points for Each Section ====//
-    for ( int i = 0 ; i < m_XSecSurf.NumXSec() ; i++ )
+    for ( int i = 0 ; i < nxsec ; i++ )
     {
         WingSect* ws = ( WingSect* ) m_XSecSurf.FindXSec( i );
         if ( ws )
@@ -1348,14 +1747,50 @@ void WingGeom::UpdateSurf()
             ws->SetProjectedSpan( ty );
 
             //==== Find Width Parm ====//
-            string width_id = ws->GetXSecCurve()->GetWidthParmID();
+            XSecCurve* xsc = ws->GetXSecCurve();
+            string width_id = xsc->GetWidthParmID();
             Parm* width_parm = ParmMgr.FindParm( width_id );
 
+            VspCurve utc;
             if ( width_parm )
             {
                 width_parm->Deactivate();
-                width_parm->Set( ws->m_TipChord() );
+
+                double w = ws->m_TipChord();
+
+                Airfoil* af = dynamic_cast < Airfoil* > ( xsc );
+                if ( af )
+                {
+                    width_parm->Set( 1.0 );
+                    xsc->SetFakeWidth( w );
+                    xsc->SetUseFakeWidth( true );
+                    utc = ws->GetUntransformedCurve();
+                    xsc->SetUseFakeWidth( false );
+                    width_parm->Set( w );
+                }
+                else
+                {
+                    CircleXSec* cir = dynamic_cast < CircleXSec* > ( xsc );
+                    if ( cir )
+                    {
+                        width_parm->Set( 1.0 );
+                        utc = ws->GetUntransformedCurve();
+                        width_parm->Set( w );
+                    }
+                    else
+                    {
+                        double h = xsc->GetHeight();
+                        xsc->SetWidthHeight( 1.0, h/w );
+                        utc = ws->GetUntransformedCurve();
+                        xsc->SetWidthHeight( w, h );
+                    }
+                }
             }
+            else
+            {
+                utc = ws->GetUntransformedCurve();
+            }
+            untransformed_crv_vec[i] = utc;
 
             double dihead_rot = 0.0;
             if ( m_RotateAirfoilMatchDiedralFlag() )
@@ -1390,6 +1825,8 @@ void WingGeom::UpdateSurf()
             ws->UpdateFromWing();
 
             crv_vec[i] =  ws->GetCurve();
+            ws->GetPoints( te_point_vec[i], le_point_vec[i] );
+            ws->GetBasis( 0, transform_vec[i] );
 
             if ( i > 0 )
             {
@@ -1400,13 +1837,243 @@ void WingGeom::UpdateSurf()
         }
     }
 
-    m_MainSurfVec[0].SkinC0( crv_vec, false );
+    vector < double > te_str_vec( nxsec - 1 );
+    vector < double > le_str_vec( nxsec - 1 );
+    vector< curve_point_type > te_dir_vec( nxsec - 1 );
+    vector< curve_point_type > le_dir_vec( nxsec - 1 );
+
+    for ( int i = 0 ; i < nxsec - 1 ; i++ )
+    {
+        te_dir_vec[i] = te_point_vec[i+1] - te_point_vec[i];
+        le_dir_vec[i] = le_point_vec[i+1] - le_point_vec[i];
+
+        te_str_vec[i] = te_dir_vec[i].norm();
+        le_str_vec[i] = le_dir_vec[i].norm();
+
+        te_dir_vec[i].normalize();
+        le_dir_vec[i].normalize();
+    }
+
+    // Loft straight LE/TE via simple endpoint subtraction and normalization.
+    vector< joint_data_type > te_joint_vec( nxsec );
+    vector< joint_data_type > le_joint_vec( nxsec );
+
+    // Re-construct joints with blended LE/TE information
+    for ( int i = 0 ; i < nxsec ; i++ )
+    {
+        WingSect *ws = (WingSect *) m_XSecSurf.FindXSec(i);
+        if (ws)
+        {
+            bool first = false;
+            bool last = false;
+
+            int inext = i;
+            int iprev = i - 1;
+
+            if( i == 0 )
+            {
+                first = true;
+                iprev = i;
+            }
+            else if( i == (nxsec-1) )
+            {
+                last = true;
+                inext = i - 1;
+            }
+
+            ws->GetJoints( first, last, te_joint_vec[i], te_point_vec[i], te_dir_vec[iprev], te_dir_vec[inext],
+                                        te_str_vec[iprev], te_str_vec[inext],
+                                        le_joint_vec[i], le_point_vec[i], le_dir_vec[iprev], le_dir_vec[inext],
+                                        le_str_vec[iprev], le_str_vec[inext] );
+        }
+    }
+
+    // Loft curved LE/TE
+
+    piecewise_curve_type cte, cle;
+    piecewise_general_curve_creator_type crv_creator;
+
+    vector< piecewise_curve_type::index_type > degree( nxsec - 1, 0 );
+
+    crv_creator.set_conditions( te_joint_vec, degree, false );
+    crv_creator.create( cte );
+
+    crv_creator.set_conditions( le_joint_vec, degree, false );
+    crv_creator.create( cle );
+
+    m_FoilSurf = VspSurf();
+    m_FoilSurf.SkinC0( untransformed_crv_vec, false );
+
+    vector < rib_data_type > ref_rib_vec;
+    vector < double > u_vec;
+
+    assert( cte.number_segments() == nxsec - 1 );
+    assert( cle.number_segments() == nxsec - 1 );
+    assert( m_FoilSurf.GetNumSectU() == nxsec - 1 );
+
+    for ( int i = 0 ; i < nxsec - 1 ; i++ )
+    {
+        ref_rib_vec.push_back( rib_data_type() );
+        ref_rib_vec.back().set_f( crv_vec[i].GetCurve() );
+
+        u_vec.push_back( i );
+
+        curve_segment_type cste, csle;
+        cte.get( cste, i );
+        cle.get( csle, i );
+        if ( cste.degree() > 1 || csle.degree() > 1 )
+        {
+            int nref = 3;
+
+            vector < double > ulocalvec;
+            ulocalvec.reserve( nref + 2 );
+
+            double tsmall = 0.02;
+            ulocalvec.push_back( tsmall );
+            for ( int j = 0; j < nref; j++ )
+            {
+                double ulocal = ((j + 1.0) / (nref + 1.0));
+                ulocalvec.push_back( ulocal );
+            }
+            ulocalvec.push_back( 1.0 - tsmall );
+
+            m_UMergeVec.push_back( ulocalvec.size() + 1 );
+
+            // Pull out width, up, and principal directions.
+            vec3d wdir0, updir0, pdir0;
+            transform_vec[i].getBasis( wdir0, updir0, pdir0 );
+            vec3d wdir1, updir1, pdir1;
+            transform_vec[i+1].getBasis( wdir1, updir1, pdir1 );
+
+            pdir0.normalize();
+            pdir1.normalize();
+
+            surface_point_type pt0, pt1;
+
+            pt0 = cte.f( i );
+            pt1 = cte.f( i + 1 );
+
+            for ( int j = 0; j < ulocalvec.size(); j++ )
+            {
+                double ulocal = ulocalvec[j];
+                double u = i + ulocal;
+
+                // Spherical linear interpolate normal vector.
+                vec3d pdir = slerp( pdir0, pdir1, ulocal );
+                pdir.normalize();
+                surface_point_type nvec;
+                pdir.get_pnt( nvec );
+
+                // Linear interpolate trailing edge point.
+                surface_point_type pt = pt0 + ulocal * ( pt1 - pt0 );
+
+                double tte, tle;
+                eli::geom::intersect::intersect_plane( tte, cste, pt, nvec );
+                tte = i + tte;
+                eli::geom::intersect::intersect_plane( tle, csle, pt, nvec );
+                tle = i + tle;
+
+                vec3d ptte, ptle;
+
+                ptte = cte.f( tte );
+                ptle = cle.f( tle );
+
+                vec3d wdir = ptte - ptle;
+                wdir.normalize();
+
+                vec3d udir = cross( wdir, pdir );
+                udir.normalize();
+
+                Matrix4d basis;
+                basis.translatev( ptle );
+                basis.setBasis( wdir, udir, pdir );
+
+                double localchord = dist( ptte, ptle );
+
+                VspCurve inscrv;
+                m_FoilSurf.GetUConstCurve( inscrv, u );
+
+                // Transform interpolated foil such that later transformation
+                // will properly position the foil.  This is mostly needed to
+                // cover cases where RotTransScale() is active.
+                vec3d pte, ple;
+
+                pte = inscrv.CompPnt( 0.0 );
+                ple = inscrv.CompPnt( 2.0 );
+
+                pdir.set_xyz(0, 0, -1.0);
+                wdir = pte - ple;
+                wdir.normalize();
+
+                udir = cross( wdir, pdir );
+                udir.normalize();
+
+                Matrix4d basis2;
+                basis2.translatev(ple);
+                basis2.setBasis(wdir, udir, pdir);
+                basis2.affineInverse();
+
+                inscrv.Transform( basis2 );
+
+                double cc = dist(pte, ple);
+                if (cc != 0.0)
+                {
+                    inscrv.Scale( 1.0 / cc );
+                }
+
+                // Transform interpolated foil into final position.
+                // TODO: Thickness aware scaling?
+                inscrv.Scale( localchord );
+
+                inscrv.Transform( basis );
+
+                ref_rib_vec.push_back( rib_data_type() );
+                ref_rib_vec.back().set_f( inscrv.GetCurve() );
+                ref_rib_vec.back().set_continuity( rib_data_type::C2 );
+
+                u_vec.push_back( u );
+            }
+        }
+        else
+        {
+            m_UMergeVec.push_back( 1.0 );
+        }
+    }
+    ref_rib_vec.push_back( rib_data_type() );
+    ref_rib_vec.back().set_f( crv_vec[ nxsec - 1 ].GetCurve() );
+
+    u_vec.push_back( nxsec - 1 );
+
+    m_MainSurfVec[0].SkinRibs( ref_rib_vec, u_vec, false );
+
+    for ( int i = 0 ; i < nxsec ; i++ )
+    {
+        WingSect* ws = ( WingSect* ) m_XSecSurf.FindXSec( i );
+        if ( ws )
+        {
+            int inext = i;
+            int iprev = i - 1;
+
+            if( i == 0 )
+            {
+                iprev = i;
+            }
+            else if( i == (nxsec-1) )
+            {
+                inext = i - 1;
+            }
+
+            ws->SetUnsetParms( i, m_MainSurfVec[0], te_str_vec[iprev], te_str_vec[inext], le_str_vec[iprev], le_str_vec[inext] );
+        }
+    }
+
     if ( m_XSecSurf.GetFlipUD() )
     {
         m_MainSurfVec[0].FlipNormal();
     }
     m_MainSurfVec[0].SetSurfType( vsp::WING_SURF );
     m_MainSurfVec[0].SetMagicVParm( true );
+    m_MainSurfVec[0].SetFoilSurf( &m_FoilSurf );
 
     m_MainSurfVec[0].SetClustering( m_LECluster(), m_TECluster() );
 
@@ -1416,6 +2083,90 @@ void WingGeom::UpdateSurf()
     m_TotalChord = ComputeTotalChord();
     m_TotalArea = ComputeTotalArea();
 
+    CalculateMeshMetrics();
+}
+
+void WingGeom::CalculateMeshMetrics()
+{
+    // Check dimensional LE/TE first panel width at all hard airfoil sections.
+
+    std::vector<double> vcheck( 8 );
+
+    double vmin, vmax, vle, vlelow, vleup, vtruemax;
+    double umin, umax;
+
+    vmin = 0.0;
+    vmax = m_MainSurfVec[0].GetWMax();
+    vtruemax = vmax;
+
+    umin = 0.0;
+    umax = m_MainSurfVec[0].GetUMax();
+
+    vle = ( vmin + vmax ) * 0.5;
+
+    vmin += TMAGIC;
+    vmax -= TMAGIC;
+
+    vlelow = vle - TMAGIC;
+    vleup = vle + TMAGIC;
+
+    double dj = 2.0 / ( m_TessW() - 1 );
+
+    // Calculate lower surface tessellation check points.
+    vcheck[0] = ( vmin );
+    vcheck[1] = ( vmin + ( vlelow - vmin ) * Cluster( dj, m_TECluster(), m_LECluster() ) );
+    vcheck[2] = ( vmin + ( vlelow - vmin ) * Cluster( 1.0 - dj, m_TECluster(), m_LECluster() ) );
+    vcheck[3] = ( vlelow );
+
+    // Upper surface constructed as:  vupper = m_Surface.get_vmax() - vlower;
+    vcheck[4] = vtruemax - vcheck[0];
+    vcheck[5] = vtruemax - vcheck[1];
+    vcheck[6] = vtruemax - vcheck[2];
+    vcheck[7] = vtruemax - vcheck[3];
+
+    // Loop over points checking for minimum panel width.
+    double mind = std::numeric_limits < double >::max();
+    for ( int i = 0; i < vcheck.size() - 1; i += 2 )
+    {
+        double v1 = vcheck[ i ];
+        double v2 = vcheck[ i + 1 ];
+
+        for ( double u = umin; u <= umax; u++ )
+        {
+            double d = dist( m_MainSurfVec[0].CompPnt( u, v1 ), m_MainSurfVec[0].CompPnt( u, v2 ) );
+            mind = min( mind, d );
+        }
+    }
+    m_SmallPanelW = mind;
+
+    // Check theoretical growth ratio assuming arclength parameterization is correct.  No need to check actual
+    // actual realized surface.  Also, no need to check all airfoil sections.
+    double maxrat = 1.0;
+
+    int jle = ( m_TessW() - 1 ) / 2;
+    int j = 0;
+
+    double t0 = Cluster( static_cast<double>( j ) / jle, m_TECluster(), m_LECluster() );
+    j++;
+    double t1 = Cluster( static_cast<double>( j ) / jle, m_TECluster(), m_LECluster() );
+    double dt1 = t1 - t0;
+    j++;
+    double t2;
+    for ( ; j <= jle; ++j )
+    {
+        t2 = Cluster( static_cast<double>( j ) / jle, m_TECluster(), m_LECluster() );
+
+        double dt2 = t2 - t1;
+
+        maxrat = max( maxrat, dt1 / dt2 );
+        maxrat = max( maxrat, dt2 / dt1 );
+
+        t0 = t1;
+        t1 = t2;
+        dt1 = dt2;
+
+    }
+    m_MaxGrowth = maxrat;
 }
 
 void WingGeom::UpdateTesselate( int indx, vector< vector< vec3d > > &pnts, vector< vector< vec3d > > &norms, vector< vector< vec3d > > &uw_pnts, bool degen )
@@ -1423,11 +2174,14 @@ void WingGeom::UpdateTesselate( int indx, vector< vector< vec3d > > &pnts, vecto
     vector < int > tessvec;
     vector < double > rootc;
     vector < double > tipc;
-    if (m_CapUMinOption()!=VspSurf::NO_END_CAP && m_CapUMinSuccess[ m_SurfIndxVec[indx] ] )
+    vector < int > umerge;
+
+    if (m_CapUMinOption()!=NO_END_CAP && m_CapUMinSuccess[ m_SurfIndxVec[indx] ] )
     {
         tessvec.push_back( m_CapUMinTess() );
         rootc.push_back( 1.0 );
         tipc.push_back( 1.0 );
+        umerge.push_back( 1 );
     }
 
     for ( int i = 0; i < m_TessUVec.size(); i++ )
@@ -1435,17 +2189,19 @@ void WingGeom::UpdateTesselate( int indx, vector< vector< vec3d > > &pnts, vecto
         tessvec.push_back( m_TessUVec[i] );
         rootc.push_back( m_RootClusterVec[i] );
         tipc.push_back( m_TipClusterVec[i] );
+        umerge.push_back( m_UMergeVec[i] );
     }
 
-    if (m_CapUMaxOption()!=VspSurf::NO_END_CAP && m_CapUMaxSuccess[ m_SurfIndxVec[indx] ] )
+    if (m_CapUMaxOption()!=NO_END_CAP && m_CapUMaxSuccess[ m_SurfIndxVec[indx] ] )
     {
         tessvec.push_back( m_CapUMinTess() );
         rootc.push_back( 1.0 );
         tipc.push_back( 1.0 );
+        umerge.push_back( 1 );
     }
 
     m_SurfVec[indx].SetRootTipClustering( rootc, tipc );
-    m_SurfVec[indx].Tesselate( tessvec, m_TessW(), pnts, norms, uw_pnts, m_CapUMinTess(), degen );
+    m_SurfVec[indx].Tesselate( tessvec, m_TessW(), pnts, norms, uw_pnts, m_CapUMinTess(), degen, umerge );
 }
 
 void WingGeom::UpdateSplitTesselate( int indx, vector< vector< vector< vec3d > > > &pnts, vector< vector< vector< vec3d > > > &norms )
@@ -1453,12 +2209,14 @@ void WingGeom::UpdateSplitTesselate( int indx, vector< vector< vector< vec3d > >
     vector < int > tessvec;
     vector < double > rootc;
     vector < double > tipc;
+    vector < int > umerge;
 
-    if (m_CapUMinOption()!=VspSurf::NO_END_CAP && m_CapUMinSuccess[ m_SurfIndxVec[indx] ] )
+    if (m_CapUMinOption()!=NO_END_CAP && m_CapUMinSuccess[ m_SurfIndxVec[indx] ] )
     {
         tessvec.push_back( m_CapUMinTess() );
         rootc.push_back( 1.0 );
         tipc.push_back( 1.0 );
+        umerge.push_back( 1 );
     }
 
     for ( int i = 0; i < m_TessUVec.size(); i++ )
@@ -1466,17 +2224,19 @@ void WingGeom::UpdateSplitTesselate( int indx, vector< vector< vector< vec3d > >
         tessvec.push_back( m_TessUVec[i] );
         rootc.push_back( m_RootClusterVec[i] );
         tipc.push_back( m_TipClusterVec[i] );
+        umerge.push_back( m_UMergeVec[i] );
     }
 
-    if (m_CapUMaxOption()!=VspSurf::NO_END_CAP && m_CapUMaxSuccess[ m_SurfIndxVec[indx] ] )
+    if (m_CapUMaxOption()!=NO_END_CAP && m_CapUMaxSuccess[ m_SurfIndxVec[indx] ] )
     {
         tessvec.push_back( m_CapUMinTess() );
         rootc.push_back( 1.0 );
         tipc.push_back( 1.0 );
+        umerge.push_back( 1 );
     }
 
     m_SurfVec[indx].SetRootTipClustering( rootc, tipc );
-    m_SurfVec[indx].SplitTesselate( tessvec, m_TessW(), pnts, norms, m_CapUMinTess() );
+    m_SurfVec[indx].SplitTesselate( tessvec, m_TessW(), pnts, norms, m_CapUMinTess(), umerge );
 }
 
 void WingGeom::UpdateDrawObj()
@@ -1497,11 +2257,11 @@ void WingGeom::UpdateDrawObj()
     //==== Tesselate Surface ====//
     for ( int i = 0 ; i < nxsec ; i++ )
     {
-        m_XSecDrawObj_vec[i].m_PntVec = m_XSecSurf.FindXSec( i )->GetDrawLines( m_TessW(), relTrans );
+        m_XSecDrawObj_vec[i].m_PntVec = m_XSecSurf.FindXSec( i )->GetDrawLines( relTrans );
         m_XSecDrawObj_vec[i].m_GeomChanged = true;
     }
 
-    m_HighlightXSecDrawObj.m_PntVec = m_XSecSurf.FindXSec( m_ActiveAirfoil )->GetDrawLines( m_TessW(), relTrans );
+    m_HighlightXSecDrawObj.m_PntVec = m_XSecSurf.FindXSec( m_ActiveAirfoil )->GetDrawLines( relTrans );
     m_HighlightXSecDrawObj.m_GeomChanged = true;
 
     double w = m_XSecSurf.FindXSec( m_ActiveAirfoil )->GetXSecCurve()->GetWidth();
@@ -1784,7 +2544,7 @@ double WingGeom::GetSumDihedral( int sect_id )
     if ( sect_id < 1 || sect_id >= (int)m_XSecSurf.NumXSec() )
         return 0.0;
 
-    if ( m_RelativeDihedralFlag() == false )
+    if ( ! m_RelativeDihedralFlag() )
     {
         WingSect* ws = ( WingSect* ) m_XSecSurf.FindXSec( sect_id );
         return ws->m_Dihedral();
@@ -1834,7 +2594,11 @@ void WingGeom::ReadV2File( xmlNodePtr &root )
         m_RelativeDihedralFlag = XmlUtil::FindInt( node, "Rel_Dihedral_Flag", m_RelativeDihedralFlag() )!= 0;
         m_RelativeTwistFlag = XmlUtil::FindInt( node, "Rel_Twist_Flag", m_RelativeTwistFlag() )!= 0;
 
-//        int round_end_cap_flag = XmlUtil::FindInt( node, "Round_End_Cap_Flag", round_end_cap_flag )!= 0;
+        int round_end_cap_flag = XmlUtil::FindInt( node, "Round_End_Cap_Flag", 0 )!= 0;
+        if ( round_end_cap_flag )
+        {
+            m_CapUMaxOption = ROUND_END_CAP;
+        }
     }
 
     //==== Read Airfoils ====//
@@ -1916,4 +2680,45 @@ void WingGeom::ReadV2File( xmlNodePtr &root )
             }
         }
     }
+}
+
+void WingGeom::OffsetXSecs( double off )
+{
+
+    vector< WingSect* > ws_vec = GetWingSectVec();
+
+    //==== Make Sure Span, RC, TC Driver ====//
+    vector<int> span_rc_tc;
+    span_rc_tc.push_back( vsp::SPAN_WSECT_DRIVER );
+    span_rc_tc.push_back( vsp::ROOTC_WSECT_DRIVER );
+    span_rc_tc.push_back( vsp::TIPC_WSECT_DRIVER );
+
+    vector< double > ref_chord_vec;
+    for ( int i = 0 ; i < (int)ws_vec.size() ; i++ )
+    {
+        WingSect* ws = ws_vec[i];
+        if ( ws )
+        {
+            ws->m_DriverGroup.SetChoices( span_rc_tc );
+        }
+    }
+
+    //==== Load Up New Tc Vals ====//
+    vector< double > new_tc_vals;
+    for ( int i = 0 ; i < (int)ws_vec.size() ; i++ )
+    {
+        new_tc_vals.push_back( ws_vec[i]->m_TipChord() - 2.0*off );
+    }
+
+    //==== Change Chord Vals ====//
+    for ( int i = 0 ; i < (int)ws_vec.size() ; i++ )
+    {
+        if ( i > 0 )
+            ws_vec[i]->m_RootChord = new_tc_vals[i-1];
+
+        ws_vec[i]->m_TipChord = new_tc_vals[i];
+    }
+
+    GeomXSec::OffsetXSecs( off );
+
 }

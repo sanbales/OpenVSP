@@ -18,12 +18,9 @@ using namespace std;
 #endif
 #define SIGN(x,y) (((x)*(y) > 0.0) ? (x):(-x))
 #define DEG2RAD(x) ( x*0.017453293 )
-#define RAD2DEG(x) ( x*57.29578 )
 
-//#define FRACT(v,min,max) ( ((max-min) == 0.0 ) ? (0.0):((v-min)/(max-min)))
 
 #include <float.h>  /* for DBL_EPSILON */
-#define FRACT(v,min,max) ( (fabs(max-min) <= DBL_EPSILON ) ? (0.0):((v-min)/(max-min)))
 
 template <class T> bool ContainsVal( vector< T > & vec, T const & val )
 {
@@ -40,6 +37,29 @@ template <class T> bool ContainsVal( vector< T > & vec, T const & val )
 extern string GenerateRandomID( int length );
 
 extern bool ToBool( double val );
+
+double mag( double x );
+double magrounddn( double x );
+double magroundup( double x );
+double floor2scale( double x, double scale );
+double ceil2scale( double x, double scale );
+vector <double> linspace( double a, double b, double n );
+vector <double> logspace( double a, double b, double n);
+
+template <typename T> T clamp( T val, T min, T max )
+{
+    if ( val < min )
+    {
+        val = min;
+    }
+
+    if ( val > max )
+    {
+        val = max;
+    }
+
+    return val;
+}
 
 #endif
 

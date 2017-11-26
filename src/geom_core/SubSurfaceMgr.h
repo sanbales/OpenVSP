@@ -41,9 +41,9 @@ public:
     std::vector< SubSurface* > GetSubSurfs( std::string comp_id, int surfnum );
     std::vector< SubSurface* > GetSubSurfs( std::string comp_id );
     std::vector< SubSurface* > GetSubSurfs();
+    SubSurface* GetSubSurf( std::string subsurf_id );
 
     void SetCurrSubSurfInd( int index );
-    void SetCurrCompID( std::string comp_id );
 
     void SetSubSurfTags( int tag_offset );
 
@@ -63,7 +63,13 @@ public:
     void BuildSingleTagMap();
     int GetTag( const std::vector<int> & tags );
     std::vector< int > GetAllTags();
-    int GetNumTags() { return m_SingleTagMap.size(); }
+
+    // Returns number of tags +1 for dummy tag.
+    int GetNumTags()
+    {
+        return m_SingleTagMap.size();
+    }
+
     std::map< std::vector<int>, int > GetSingleTagMap() { return m_SingleTagMap; }
 
     // Write Tag Key File

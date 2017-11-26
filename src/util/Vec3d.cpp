@@ -10,7 +10,7 @@
 //   J.R. Gloudemans - 7/7/93
 //******************************************************************************
 
-#include <math.h>
+#include <cmath>
 #include <float.h> //For DBL_EPSILON
 #include <stdio.h>
 #include "Vec3d.h"
@@ -148,6 +148,13 @@ vec3d operator*( const vec3d& a, double b )
 }
 
 //******* x = a * b ******//
+vec3d operator*( double b, const vec3d& a )
+{
+    vec3d ret( a.v[0] * b, a.v[1] * b, a.v[2] * b );
+    return ret;
+}
+
+//******* x = a * b ******//
 vec3d operator*( const vec3d& a, const vec3d& b )
 {
     vec3d ret( a.v[0] * b.v[0], a.v[1] * b.v[1], a.v[2] * b.v[2] );
@@ -225,39 +232,39 @@ void vec3d::normalize()
 
 int vec3d::major_comp() const
 {
-	int i = 0;
-	double c = abs( v[i] );
+    int i = 0;
+    double c = std::abs( v[i] );
 
-	if( abs(v[1]) > c )
-	{
-		i = 1;
-		c = abs( v[i] );
-	}
+    if( std::abs(v[1]) > c )
+    {
+        i = 1;
+        c = std::abs( v[i] );
+    }
 
-	if( abs(v[2]) > c )
-	{
-		i = 2;
-	}
-	return i;
+    if( std::abs(v[2]) > c )
+    {
+        i = 2;
+    }
+    return i;
 }
 
 int vec3d::minor_comp() const
 {
-	int i = 0;
-	double c = abs( v[i] );
+    int i = 0;
+    double c = std::abs( v[i] );
 
-	if( abs(v[1]) < c )
-	{
-		i = 1;
-		c = abs( v[i] );
-	}
+    if( std::abs(v[1]) < c )
+    {
+        i = 1;
+        c = std::abs( v[i] );
+    }
 
-	if( abs(v[2]) < c )
-	{
-		i = 2;
-		c = abs( v[i] );
-	}
-	return i;
+    if( std::abs(v[2]) < c )
+    {
+        i = 2;
+        c = std::abs( v[i] );
+    }
+    return i;
 }
 
 //******* Dot Product:  x = a.dot(b) ******//
@@ -283,6 +290,10 @@ double angle( const vec3d& a, const vec3d& b )
     if ( angle >= -1.0 && angle <= 1.0 )
     {
         return( acos( angle ) );
+    }
+    else if ( angle < 0.0 )
+    {
+        return PI;
     }
     else
     {
@@ -399,7 +410,7 @@ double dist_pnt_2_plane( vec3d& org, vec3d& norm, vec3d& pnt )
     //===== NORM SHOULD BE NORMALIZED ====//
     double d = dot( ( pnt - org ), norm );
 
-    return( fabs( d ) );
+    return( std::abs( d ) );
 
 }
 
@@ -521,13 +532,13 @@ vec3d proj_pnt_on_line( const vec3d& line_pt1, const vec3d& line_pt2, const vec3
 
     double denom = ln2_ln1.mag();
 
-    if ( fabs( denom ) <= 0.000000000012 )
+    if ( std::abs( denom ) <= 0.000000000012 )
     {
         return ( line_pt1 );
     }
 
     double p_ln1_mag = p_ln1.mag();
-    if ( fabs( p_ln1_mag ) <= 0.000000000012 )
+    if ( std::abs( p_ln1_mag ) <= 0.000000000012 )
     {
         return ( line_pt1 );
     }
@@ -610,8 +621,8 @@ int tri_seg_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     vec3d cs = cross( B, C );
     double denom = dot( cs, E );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -626,8 +637,8 @@ int tri_seg_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     cs = cross( C, E );
     denom = dot( cs, B );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -642,8 +653,8 @@ int tri_seg_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     cs = cross( B, E );
     denom = dot( cs, C );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -680,8 +691,8 @@ int tri_ray_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     vec3d cs = cross( B, C );
     double denom = dot( cs, E );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -691,8 +702,8 @@ int tri_ray_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     cs = cross( C, E );
     denom = dot( cs, B );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -707,8 +718,8 @@ int tri_ray_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E,
     cs = cross( B, E );
     denom = dot( cs, C );
 
-    //if ( fabs(denom) == 0.0 ) return(0);
-    if ( fabs( denom ) <= DBL_EPSILON )
+    //if ( std::abs(denom) == 0.0 ) return(0);
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -742,7 +753,7 @@ int plane_ray_intersect( vec3d& A, vec3d& B, vec3d& C, vec3d& D, vec3d& E, doubl
     vec3d cs = cross( B, C );
     double denom = dot( cs, E );
 
-    if ( fabs( denom ) <= DBL_EPSILON )
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -762,7 +773,7 @@ int plane_ray_intersect( vec3d& orig, vec3d& norm, vec3d& D, vec3d& E, double& t
 {
     double denom = dot( norm, E );
 
-    if ( fabs( denom ) <= DBL_EPSILON )
+    if ( std::abs( denom ) <= DBL_EPSILON )
     {
         return( 0 );
     }
@@ -893,8 +904,8 @@ double dist3D_Segment_to_Segment( vec3d& S1P0, vec3d& S1P1, vec3d& S2P0, vec3d& 
         }
     }
     // finally do the division to get sc and tc
-    sc = ( fabs( sN ) < SMALL_NUM ? 0.0 : sN / sD );
-    tc = ( fabs( tN ) < SMALL_NUM ? 0.0 : tN / tD );
+    sc = ( std::abs( sN ) < SMALL_NUM ? 0.0 : sN / sD );
+    tc = ( std::abs( tN ) < SMALL_NUM ? 0.0 : tN / tD );
 
     // get the difference of the two closest points
     vec3d   dP = w + ( u * sc ) - ( v * tc ); // = S1(sc) - S2(tc)
@@ -993,8 +1004,8 @@ double dist3D_Segment_to_Segment( vec3d& S1P0, vec3d& S1P1, vec3d& S2P0, vec3d& 
         }
     }
     // finally do the division to get sc and tc
-    sc = ( fabs( sN ) < SMALL_NUM ? 0.0 : sN / sD );
-    tc = ( fabs( tN ) < SMALL_NUM ? 0.0 : tN / tD );
+    sc = ( std::abs( sN ) < SMALL_NUM ? 0.0 : sN / sD );
+    tc = ( std::abs( tN ) < SMALL_NUM ? 0.0 : tN / tD );
 
     // get the difference of the two closest points
     vec3d   dP = w + ( u * sc ) - ( v * tc ); // = S1(sc) - S2(tc)
@@ -1108,20 +1119,20 @@ double nearSegSeg( const vec3d& L0, const vec3d& L1, const vec3d& S0, const vec3
 }
 
 
-double pointLineDistSquared( vec3d& X0, vec3d& X1, vec3d& X2, double* t )
+double pointLineDistSquared( const vec3d& X0, const vec3d& X1, const vec3d& X2, double* t )
 {
     vec3d X10 = X1 - X0;
     vec3d X21 = X2 - X1;
 
     double denom = dist_squared( X2, X1 );
 
-    if ( denom < 0.000000001 )
+    if ( denom < 1e-9 ) // was 1e-9
     {
         *t = 0.0;
     }
     else
     {
-        *t = -dot( X10, X21 ) / dist_squared( X2, X1 );
+        *t = -dot( X10, X21 ) / denom;
     }
 
     vec3d Xon = X1 + X21 * ( *t );
@@ -1135,20 +1146,18 @@ vec3d point_on_line( const vec3d & lp0, const vec3d & lp1, const double & t )
     return lp0 + s10 * t;
 }
 
-double pointSegDistSquared( vec3d& p, vec3d& sp0, vec3d& sp1, double* t )
+double pointSegDistSquared( const vec3d& p, const vec3d& sp0, const vec3d& sp1, double* t )
 {
     double dSqr = pointLineDistSquared( p, sp0, sp1, t );
 
     if ( *t < 0 )
     {
         *t = 0;
-        vec3d vec = p - sp0;
         dSqr = dist_squared( p, sp0 );
     }
     else if ( *t > 1 )
     {
         *t = 1;
-        vec3d vec = p - sp1;
         dSqr = dist_squared( p, sp1 );
     }
 
@@ -1156,7 +1165,7 @@ double pointSegDistSquared( vec3d& p, vec3d& sp0, vec3d& sp1, double* t )
 
 }
 
-vec2d MapToPlane( vec3d & P, vec3d & B, vec3d & e0, vec3d & e1 )
+vec2d MapToPlane( const vec3d & P, const vec3d & B, const vec3d & e0, const vec3d & e1 )
 {
     vec2d result;
     vec3d BmP = B - P;
@@ -1182,7 +1191,7 @@ vec2d MapToPlane( vec3d & P, vec3d & B, vec3d & e0, vec3d & e1 )
     return result;
 }
 
-vec3d MapFromPlane( vec2d & uw, vec3d & B, vec3d & e0, vec3d & e1 )
+vec3d MapFromPlane( const vec2d & uw, const vec3d & B, const vec3d & e0, const vec3d & e1 )
 {
     vec3d result = B + e0 * uw.x() + e1 * uw.y();
     return result;
@@ -1227,7 +1236,7 @@ bool line_line_intersect( vec3d & p1, vec3d & p2, vec3d & p3, vec3d & p4, double
     double d1321 = dot( p13, p21 );
 
     double denom = d2121 * d4343 - d4321 * d4321;
-    if ( fabs( denom ) < DBL_EPSILON )
+    if ( std::abs( denom ) < DBL_EPSILON )
     {
         return false;
     }
@@ -1290,7 +1299,7 @@ double poly_area( const vector< vec3d > & pnt_vec )
         total_area += pnt_vec.back().x() * pnt_vec[0].y() - pnt_vec[0].x() * pnt_vec.back().y();
     }
 
-    return fabs( total_area );
+    return std::abs( total_area );
 }
 
 vec3d BarycentricWeights( const vec3d & v0, const vec3d & v1, const vec3d & v2, const vec3d & p )
@@ -1337,7 +1346,7 @@ void BilinearWeights( const vec3d & p0, const vec3d & p1, const vec3d & p, std::
     dy = ( p1.y() - p0.y() );
     denom = dx * dy;
 
-    if ( fabs( denom ) < zero_tol )
+    if ( std::abs( denom ) < zero_tol )
     {
         return;
     }
@@ -1358,4 +1367,86 @@ void BilinearWeights( const vec3d & p0, const vec3d & p1, const vec3d & p, std::
     weights[2] = w3;
     weights[3] = w2;
 
+}
+
+double tri_tri_min_dist( vec3d & v0, vec3d & v1, vec3d & v2, vec3d & v3, vec3d & v4, vec3d & v5 )
+{
+    double d;
+    double min_dist = 1.0e12;
+
+    d = pnt_tri_min_dist( v0, v1, v2, v3 );     min_dist = std::min( d, min_dist );
+    d = pnt_tri_min_dist( v0, v1, v2, v4 );     min_dist = std::min( d, min_dist );
+    d = pnt_tri_min_dist( v0, v1, v2, v5 );     min_dist = std::min( d, min_dist );
+
+    d = pnt_tri_min_dist( v3, v4, v5, v0 );     min_dist = std::min( d, min_dist );
+    d = pnt_tri_min_dist( v3, v4, v5, v1 );     min_dist = std::min( d, min_dist );
+    d = pnt_tri_min_dist( v3, v4, v5, v2 );     min_dist = std::min( d, min_dist );
+
+    return min_dist;
+}
+
+double pnt_tri_min_dist( vec3d & v0, vec3d & v1, vec3d & v2, vec3d & pnt )
+{
+    vec2d uw = MapToPlane( pnt, v0, v1-v0, v2-v0 );
+    vec3d plnpnt = MapFromPlane( uw, v0, v1-v0, v2-v0 );
+
+    //====  Check If Point In Tri ====//
+    if ( uw[0] >= 0.0 && uw[0] <= 1.0 && uw[1] >= 0.0 && uw[1] <= 1.0 && 
+         uw[0] + uw[1] <= 1.0 )
+    {
+        return dist( pnt, plnpnt );
+    }
+    double t;
+    double d01 = pointSegDistSquared( pnt, v0, v1, &t );
+    double d12 = pointSegDistSquared( pnt, v1, v2, &t );
+    double d20 = pointSegDistSquared( pnt, v2, v0, &t );
+
+    if ( d01 < d12 && d01 < d20 )
+        return sqrt(d01);
+    else if ( d12 < d20 )
+        return sqrt(d12);
+    else 
+        return sqrt(d20);
+}
+
+namespace std
+{
+string to_string( const vec3d &v)
+{
+    return "x: " + std::to_string( v.x() ) +
+          " y: " + std::to_string( v.y() ) +
+          " z: " + std::to_string( v.z() );
+}
+}
+
+// Spherical linear interpolation between direction vectors.
+// Intermediate vectors follow great circle path with constant velocity.
+vec3d slerp( const vec3d& a, const vec3d& b, const double &t )
+{
+    vec3d an = a / a.mag();
+    vec3d bn = b / b.mag();
+
+    double dp = dot( an, bn );
+
+    double theta = 0.0;
+    if ( dp >= -1.0 && dp <= 1.0 )
+    {
+        theta = acos( dp );
+    }
+
+    // Initialize retvec as a-direction.
+    vec3d retvec = an;
+
+    // If vectors are not parallel, interpolate between them.
+    if ( std::abs( theta ) > 1.0e-6 )
+    {
+        // Drop division by sin(theta) because .normalize() will scale
+        double coeff1 = sin( ( 1.0 - t ) * theta );  // implied  / sin(theta)
+        double coeff2 = sin( t * theta );            // implied  / sin(theta)
+
+        retvec = coeff1 * an + coeff2 * bn;
+        retvec.normalize();
+    }
+
+    return retvec;
 }

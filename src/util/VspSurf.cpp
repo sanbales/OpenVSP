@@ -10,39 +10,45 @@
 
 
 #include <stdio.h>
-#include <math.h>
+#include <cmath>
 #include <algorithm>
 #include <set>
 
 #include "VspSurf.h"
 #include "StlHelper.h"
 #include "PntNodeMerge.h"
-#include "APIDefines.h"
+#include "Cluster.h"
+#include "Util.h"
 
-#include "eli/geom/curve/piecewise_creator.hpp"
 #include "eli/geom/surface/piecewise_body_of_revolution_creator.hpp"
-#include "eli/geom/surface/piecewise_capped_surface_creator.hpp"
+#include "eli/geom/surface/piecewise_multicap_surface_creator.hpp"
 #include "eli/geom/intersect/minimum_distance_surface.hpp"
+#include "eli/geom/intersect/distance_angle_surface.hpp"
 
 typedef piecewise_surface_type::index_type surface_index_type;
 typedef piecewise_surface_type::point_type surface_point_type;
 typedef piecewise_surface_type::rotation_matrix_type surface_rotation_matrix_type;
 typedef piecewise_surface_type::bounding_box_type surface_bounding_box_type;
-typedef piecewise_curve_type::point_type curve_point_type;
 
-typedef eli::geom::curve::piecewise_linear_creator<double, 3, surface_tolerance_type> piecewise_linear_creator_type;
 typedef eli::geom::surface::piecewise_general_skinning_surface_creator<double, 3, surface_tolerance_type> general_creator_type;
-typedef eli::geom::surface::piecewise_capped_surface_creator<double, 3, surface_tolerance_type> capped_creator_type;
+typedef eli::geom::surface::piecewise_multicap_surface_creator<double, 3, surface_tolerance_type> multicap_creator_type;
+typedef eli::geom::surface::piecewise_cubic_spline_skinning_surface_creator<double, 3, surface_tolerance_type> spline_creator_type;
 
 //===== Constructor  =====//
 VspSurf::VspSurf()
 {
     m_FlipNormal = false;
     m_MagicVParm = false;
+    m_HalfBOR = false;
     m_SurfType = vsp::NORMAL_SURF;
     m_SurfCfdType = vsp::CFD_NORMAL;
+    m_SkinType = SKIN_NONE;
+
+    m_CloneIndex = -1;
 
     SetClustering( 1.0, 1.0 );
+
+    m_FoilSurf = NULL;
 }
 
 //===== Destructor  =====//
@@ -154,7 +160,13 @@ double VspSurf::FindNearest( double &u, double &w, const vec3d &pt, const double
     surface_point_type p;
     p << pt.x(), pt.y(), pt.z();
 
-    dist = eli::geom::intersect::minimum_distance( u, w, m_Surface, p, u0, w0 );
+    double u0in = u0;
+    double w0in = w0;
+
+    u0in = clamp( u0in, 0.0, GetUMax() );
+    w0in = clamp( w0in, 0.0, GetWMax() );
+
+    dist = eli::geom::intersect::minimum_distance( u, w, m_Surface, p, u0in, w0in );
 
     return dist;
 }
@@ -183,17 +195,91 @@ double VspSurf::FindNearest01( double &u, double &w, const vec3d &pt, const doub
     return dist;
 }
 
+void VspSurf::FindDistanceAngle( double &u, double &w, const vec3d &pt, const vec3d &dir, const double &d, const double &theta, const double &u0, const double &w0 ) const
+{
+    surface_point_type p, dr;
+    p << pt.x(), pt.y(), pt.z();
+    dr << dir.x(), dir.y(), dir.z();
+
+    double dot = cos( theta );
+
+    double wllim, wulim;
+    if ( w0 < 2.0 )
+    {
+        wllim = 0.0 + TMAGIC;
+        wulim = 2.0 - TMAGIC;
+    }
+    else
+    {
+        wllim = 2.0 + TMAGIC;
+        wulim = 4.0 - TMAGIC;
+    }
+
+    double wguess = w0;
+    if ( wguess <= wllim )
+    {
+        wguess = wllim + 1e-6;
+    }
+    else if ( wguess >= wulim )
+    {
+        wguess = wulim - 1e-6;
+    }
+
+    double umin = m_Surface.get_u0();
+    double umax = m_Surface.get_umax();
+    double uguess = u0;
+    if ( uguess <= umin )
+    {
+        uguess = umin + 1e-6;
+    }
+    else if ( uguess >= umax )
+    {
+        uguess = umax - 1e-6;
+    }
+
+    int retval;
+    eli::geom::intersect::distance_angle( u, w, m_Surface, p, dr, d*d, dot, uguess, wguess, wllim, wulim, retval );
+}
+
+void VspSurf::GuessDistanceAngle( double &du, double &dw, const vec3d &udir, const vec3d & wdir, const double &d, const double &theta ) const
+{
+    if ( udir.mag() < 1e-6 )
+    {
+        dw = d / wdir.mag();
+        du = 0;
+    }
+    else
+    {
+        double k = dot( wdir, udir ) / dot( udir, udir );
+        vec3d wproju = udir * k;
+        vec3d ndir = wdir - wproju;
+
+        double dn = sin ( theta ) / ndir.mag();
+        dw = d * dn;
+
+        du = d * ( cos( theta ) / udir.mag() - k * dn );
+    }
+}
+
 void VspSurf::GetUConstCurve( VspCurve &c, const double &u ) const
 {
     piecewise_curve_type pwc;
-    m_Surface.get_uconst_curve(pwc, u);
+
+    double uin = u;
+    uin = clamp( uin, 0.0, GetUMax() );
+
+    m_Surface.get_uconst_curve(pwc, uin);
     c.SetCurve(pwc);
 }
 
 void VspSurf::GetWConstCurve( VspCurve &c, const double &w ) const
 {
     piecewise_curve_type pwc;
-    m_Surface.get_vconst_curve(pwc, w);
+
+    double win = w;
+    win = clamp( win, 0.0, GetWMax() );
+
+    m_Surface.get_vconst_curve(pwc, win);
     c.SetCurve(pwc);
 }
 
@@ -213,26 +299,63 @@ Matrix4d VspSurf::CompRotCoordSys( const double &u, const double &w )
 {
     Matrix4d retMat; // Return Matrix
 
-    double tempMat[16];
     // Get du and norm, cross them to get the last orthonormal vector
     vec3d du = CompTanU01( u, w );
     du.normalize();
     vec3d norm = CompNorm01( u, w ); // use CompNorm01 since normals now face outward
     norm.normalize();
+
+    if ( m_MagicVParm ) // Surfs with magic parameter treatment (wings) have added chances to degenerate
+    {
+        double tmagic01 = TMAGIC / GetWMax();
+
+        if ( du.mag() < 1e-6 ) // Zero direction vector
+        {
+            if ( w <= tmagic01 ) // Near TE lower
+            {
+                du = CompTanU01( u, tmagic01 + 1e-6 );
+                du.normalize();
+            }
+
+            if ( w >= ( 0.5 - tmagic01 ) && w <= ( 0.5 + tmagic01 ) ) // Near leading edge
+            {
+                du = CompTanU01( u, 0.5 + tmagic01 + 1e-6 );
+                du.normalize();
+            }
+
+            if ( w >= ( 1.0 - tmagic01 ) ) // Near TE upper
+            {
+                du = CompTanU01( u, 1.0 - ( tmagic01 + 1e-6 ) );
+                du.normalize();
+            }
+        }
+
+        if ( norm.mag() < 1e-6 ) // Zero normal vector
+        {
+            if ( w <= tmagic01 ) // Near TE lower
+            {
+                norm = CompNorm01( u, tmagic01 + 1e-6 );
+                norm.normalize();
+            }
+
+            if ( w >= ( 0.5 - tmagic01 ) && w <= ( 0.5 + tmagic01 ) ) // Near leading edge
+            {
+                norm = CompNorm01( u, 0.5 + tmagic01 + 1e-6 );
+                norm.normalize();
+            }
+
+            if ( w >= ( 1.0 - tmagic01 ) ) // Near TE upper
+            {
+                norm = CompNorm01( u, 1.0 - ( tmagic01 + 1e-6 ) );
+                norm.normalize();
+            }
+        }
+    }
+
     vec3d dw = cross( norm, du );
 
     // Place axes in as cols of Rot mat
-    retMat.getMat( tempMat );
-    tempMat[0] = du.x();
-    tempMat[4] = dw.x();
-    tempMat[8]  = norm.x();
-    tempMat[1] = du.y();
-    tempMat[5] = dw.y();
-    tempMat[9]  = norm.y();
-    tempMat[2] = du.z();
-    tempMat[6] = dw.z();
-    tempMat[10] = norm.z();
-    retMat.initMat( tempMat );
+    retMat.setBasis( du, dw, norm );
     return retMat;
 }
 
@@ -248,15 +371,19 @@ Matrix4d VspSurf::CompTransCoordSys( const double &u, const double &w )
     return retMat;
 }
 
-void VspSurf::CreateBodyRevolution( const VspCurve &input_crv )
+void VspSurf::CreateBodyRevolution( const VspCurve &input_crv, bool match_uparm )
 {
-    eli::geom::surface::create_body_of_revolution( m_Surface, input_crv.GetCurve(), 0, true );
+    eli::geom::surface::create_body_of_revolution( m_Surface, input_crv.GetCurve(), 0, true, match_uparm );
 
     ResetFlipNormal();
     ResetUWSkip();
+
+    //==== Store Skining Data ====//
+    m_SkinType = SKIN_BODY_REV;
+    m_BodyRevCurve = input_crv;
 }
 
-void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, const vector < int > &degree, bool closed_flag )
+void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, const vector < int > &degree, const vector < double > & param, bool closed_flag )
 {
     general_creator_type gc;
     surface_index_type nrib, i;
@@ -275,9 +402,56 @@ void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, const vector < int > 
     bool setcond = gc.set_conditions(ribs, max_degree, closed_flag);
     assert( setcond );
 
-    gc.create( m_Surface );
+    if ( !setcond )
+    {
+        printf( "Failure in SkinRibs set_conditions\n" );
+    }
+
+    // set the delta u for each surface segment
+    gc.set_u0( param[0] );
+    for ( i = 0; i < gc.get_number_u_segments(); ++i )
+    {
+        gc.set_segment_du( param[i + 1] - param[i], i );
+    }
+
+    m_Surface.clear();
+    bool creat = gc.create( m_Surface );
+
+    if ( !creat )
+    {
+        printf( "Failure in SkinRibs create\n" );
+    }
+
     ResetFlipNormal();
     ResetUWSkip();
+
+    //==== Store Skining Data ====//
+    m_SkinType = SKIN_RIBS;
+    m_SkinRibVec = ribs;
+    m_SkinDegreeVec = degree;
+    m_SkinParmVec = param;
+    m_SkinClosedFlag = closed_flag;
+
+}
+
+void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, const vector < double > & param, bool closed_flag )
+{
+    surface_index_type nrib;
+    nrib = ribs.size();
+    vector< int > degree( nrib - 1, 0 );
+    SkinRibs( ribs, degree, param, closed_flag );
+}
+
+void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, const vector < int > &degree, bool closed_flag )
+{
+    surface_index_type nrib;
+    nrib = ribs.size();
+    vector< double > param( nrib );
+    for ( int i = 0; i < nrib; i++ )
+    {
+        param[i] = 1.0 * i;
+    }
+    SkinRibs( ribs, degree, param, closed_flag );
 }
 
 //==== Interpolate A Set Of Points =====//
@@ -287,6 +461,73 @@ void VspSurf::SkinRibs( const vector<rib_data_type> &ribs, bool closed_flag )
     nrib = ribs.size();
     vector< int > degree( nrib - 1, 0 );
     SkinRibs( ribs, degree, closed_flag );
+}
+
+void VspSurf::SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, const vector <double> &tdisc, const vector < int > &degree, bool closed_flag )
+{
+    spline_creator_type sc;
+    surface_index_type nrib, i;
+
+    nrib = ribs.size();
+
+    std::vector<typename spline_creator_type::index_type> max_degree( nrib - 1, 0 );
+
+    assert( degree.size() == nrib - 1 );
+    for( i = 0; i < nrib - 1; i++ )
+    {
+        max_degree[i] = degree[i];
+    }
+
+    // create surface
+    bool setcond = sc.set_conditions(ribs, max_degree, closed_flag);
+    assert( setcond );
+
+    if ( !setcond )
+    {
+        printf( "Failure in SkinCubicSpline set_conditions\n" );
+    }
+
+    // set the delta u for each surface segment
+    sc.set_u0( param[0] );
+    for ( i = 0; i < sc.get_number_u_segments(); ++i )
+    {
+        sc.set_segment_du( param[i + 1] - param[i], i );
+    }
+
+    sc.set_tdisc( tdisc );
+
+    m_Surface.clear();
+    bool creat = sc.create( m_Surface );
+
+    if ( !creat )
+    {
+        printf( "Failure in SkinCubicSpline create\n" );
+    }
+
+    ResetFlipNormal();
+    ResetUWSkip();
+}
+
+//==== Interpolate A Set Of Points =====//
+void VspSurf::SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, const vector <double> &tdisc, bool closed_flag )
+{
+    surface_index_type nrib;
+    nrib = ribs.size();
+    vector< int > degree( nrib - 1, 0 );
+    SkinCubicSpline( ribs, param, tdisc, degree, closed_flag );
+}
+
+//==== Interpolate A Set Of Points =====//
+void VspSurf::SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, bool closed_flag )
+{
+    surface_index_type nrib;
+    nrib = ribs.size();
+    vector< int > degree( nrib - 1, 0 );
+    vector < double > tdisc(2);
+    tdisc[0] = param[0];
+    tdisc[1] = param.back();
+
+    SkinCubicSpline( ribs, param, tdisc, degree, closed_flag );
 }
 
 void VspSurf::SkinCX( const vector< VspCurve > &input_crv_vec, const vector< int > &cx, const vector< int > &degree, bool closed_flag )
@@ -578,114 +819,270 @@ void VspSurf::FlagDuplicate( VspSurf *othersurf )
     }
 }
 
-double VspSurf::Cluster( const double &t, const double &a, const double &b ) const
+void VspSurf::MakeUTess( const vector<int> &num_u, vector<double> &u, const std::vector<int> & umerge ) const
 {
-    double mt = 1.0 - t;
-    return mt * mt * t * a + mt * t * t * ( 3.0 - b ) + t * t * t;
-}
-
-void VspSurf::MakeUTess( const vector<int> &num_u, vector<double> &u ) const
-{
-    surface_index_type i, j, nu;
-    double umin, umax;
-
-    const int nusect = GetNumSectU();
-
-    assert( num_u.size() == nusect );
-    assert( m_USkip.size() == nusect );
-
-    // calculate nu
-    nu = 1;
-    for ( int ii = 0; ii < nusect; ++ii )
+    if ( umerge.size() != 0 )
     {
-        if ( !m_USkip[ii] )
+        const int nusect = num_u.size();
+
+        // Build merged version of m_USkip as uskip.
+        vector <bool> uskip( nusect, false );
+        int iusect = 0;
+        for ( int i = 0; i < nusect; i++ )
         {
-            nu += num_u[ii] - 1;
-        }
-    }
-
-    // calculate the u and v parameterizations
-    umin = m_Surface.get_u0();
-    umax = m_Surface.get_umax();
-
-    u.resize( nu );
-    double uumin( umin );
-    size_t iusect;
-    size_t iu = 0;
-    for ( iusect = 0; iusect < (size_t)nusect; ++iusect )
-    {
-        double du, dv;
-        surface_patch_type surf;
-        m_Surface.get( surf, du, dv, iusect, 0 );
-
-        if ( !m_USkip[ iusect] )
-        {
-            for ( int isecttess = 0; isecttess < num_u[iusect] - 1; ++isecttess )
+            uskip[i] = m_USkip[iusect];
+            for (int j = 0; j < umerge[i]; j++)
             {
-                u[iu] = uumin + du * Cluster( static_cast<double>( isecttess ) / ( num_u[iusect] - 1 ), m_RootCluster[iusect], m_TipCluster[iusect] );
-                iu++;
+                iusect++;
             }
         }
-        if ( !( iusect == nusect - 1 && m_USkip[ iusect ] ) )
+
+        if ( nusect != umerge.size() )
         {
-            uumin += du;
+            printf( "Error.  num_u does not match umerge.\n" );
         }
+        assert( uskip.size() == nusect );
+
+        int nu = 1;
+        for ( int i = 0; i < nusect; i++ )
+        {
+            if ( !uskip[i] )
+            {
+                nu += num_u[i] - 1;
+            }
+        }
+
+        iusect = 0;
+        double ustart = m_Surface.get_u0();
+        double uend = ustart;
+
+        u.resize( nu );
+        int iu = 0;
+
+        for ( int i = 0; i < nusect; i++ )
+        {
+            for ( int j = 0; j < umerge[i]; j++ )
+            {
+                double du, dv;
+                surface_patch_type surf;
+                m_Surface.get( surf, du, dv, iusect, 0 );
+
+                uend += du;
+                iusect++;
+            }
+
+            double du = uend - ustart;
+
+            if ( !uskip[i] )
+            {
+                for ( int isecttess = 0; isecttess < num_u[i] - 1; ++isecttess )
+                {
+                    u[iu] = ustart + du * Cluster(static_cast<double>( isecttess ) / (num_u[i] - 1), m_RootCluster[i], m_TipCluster[i]);
+                    iu++;
+                }
+            }
+
+            if ( !( i == nusect - 1 && uskip[i] ) )
+            {
+                ustart = uend;
+            }
+
+        }
+        u.back() = ustart;
+
+
     }
-    u.back() = uumin;
+    else
+    {
+        surface_index_type nu;
+        double umin;
+
+        const int nusect = num_u.size();
+
+        assert( m_USkip.size() == nusect );
+
+        // calculate nu
+        nu = 1;
+        for ( int ii = 0; ii < nusect; ++ii )
+        {
+            if ( !m_USkip[ii] )
+            {
+                nu += num_u[ii] - 1;
+            }
+        }
+
+        // calculate the u and v parameterizations
+        umin = m_Surface.get_u0();
+
+        u.resize( nu );
+        double uumin( umin );
+        size_t iusect;
+        size_t iu = 0;
+        for ( iusect = 0; iusect < (size_t)nusect; ++iusect )
+        {
+            double du, dv;
+            surface_patch_type surf;
+            m_Surface.get( surf, du, dv, iusect, 0 );
+
+            if ( !m_USkip[ iusect] )
+            {
+                for ( int isecttess = 0; isecttess < num_u[iusect] - 1; ++isecttess )
+                {
+                    u[iu] = uumin + du * Cluster( static_cast<double>( isecttess ) / ( num_u[iusect] - 1 ), m_RootCluster[iusect], m_TipCluster[iusect] );
+                    iu++;
+                }
+            }
+            if ( !( iusect == nusect - 1 && m_USkip[ iusect ] ) )
+            {
+                uumin += du;
+            }
+        }
+        u.back() = uumin;
+    }
 }
 
 void VspSurf::MakeVTess( int num_v, std::vector<double> &vtess, const int &n_cap, bool degen ) const
 {
-    double vmin, vmax, vabsmin;
+    double vmin, vmax, vabsmin, vabsmax, vle, vlelow, vleup;
     surface_index_type nv( num_v );
 
     vmin = m_Surface.get_v0();
     vmax = m_Surface.get_vmax();
 
     vabsmin = vmin;
+    vabsmax = vmax;
 
-    double tol = 1e-6;
+    double tol = 1e-8;
 
-    if ( IsMagicVParm() ) // V uses 'Magic' values for things like blunted TE.
+    // This case applies to wings, propellers, and flowthrough bodies of revolution
+    if ( IsMagicVParm() && !IsHalfBOR() ) // V uses 'Magic' values for things like blunted TE.
     {
         vmin += TMAGIC;
         vmax -= TMAGIC;
 
+        vle = ( vmin + vmax ) * 0.5;
+        vlelow = vle - TMAGIC;
+        vleup = vle + TMAGIC;
+
         vtess.resize(nv);
         int jle = ( nv - 1 ) / 2;
         int j = 0;
+        if ( degen )
+        {
+            vtess[j] = vabsmin;
+            j++;
+        }
         for ( ; j < jle; ++j )
         {
-            vtess[j] = vmin + ( vmax - vmin ) * 0.5 * Cluster( 2.0 * static_cast<double>( j ) / ( nv - 1 ), m_TECluster, m_LECluster );
+            vtess[j] = vmin + ( vlelow - vmin ) * Cluster( 2.0 * static_cast<double>( j ) / ( nv - 1 ), m_TECluster, m_LECluster );
+        }
+        if ( degen )
+        {
+            vtess[j] = vle;
+            j++;
         }
         for ( ; j < nv; ++j )
         {
-            vtess[j] = vmin + ( vmax - vmin ) * 0.5 * (1+Cluster( 2.0 * static_cast<double>( j - jle ) / ( nv - 1 ), m_LECluster, m_TECluster ));
+            vtess[j] = vleup + ( vmax - vleup ) * ( 1.0 - Cluster( 1.0 - 2.0 * static_cast<double>( j - jle ) / ( nv - 1 ), m_TECluster, m_LECluster ));
+        }
+        if ( degen )
+        {
+            vtess[ nv - 1 ] = vabsmax;
         }
 
-        if ( degen ) // DegenGeom, don't tessellate blunt TE.
+        if ( degen ) // DegenGeom, don't tessellate blunt TE or LE.
         {
             return;
         }
 
         piecewise_curve_type c1, c2;
-        m_Surface.get_vconst_curve( c1, vmin );
-        m_Surface.get_vconst_curve( c2, vmin + TMAGIC );
+        m_Surface.get_vconst_curve( c1, vabsmin );
+        m_Surface.get_vconst_curve( c2, vmin );
 
-        if ( !c1.abouteq( c2, tol ) ) // V Min edge is not repeated.
+        // Note: piecewise_curve_type::abouteq test is based on distance squared.
+        if ( !c1.abouteq( c2, tol * tol ) ) // V Min edge is not repeated.
         {
-            for ( int j = 0; j < n_cap; j++ )
+            for ( j = 0; j < n_cap; j++ )
             {
                 vtess.push_back( vabsmin + TMAGIC * j / (n_cap -1) );
             }
         }
 
-        m_Surface.get_vconst_curve( c1, vmax );
-        m_Surface.get_vconst_curve( c2, vmax - TMAGIC );
+        m_Surface.get_vconst_curve( c1, vabsmax );
+        m_Surface.get_vconst_curve( c2, vmax );
 
-        if ( !c1.abouteq( c2, tol ) ) // V Max edge is not repeated.
+        if ( !c1.abouteq( c2, tol * tol ) ) // V Max edge is not repeated.
         {
-            for ( int j = 0; j < n_cap; j++ )
+            for ( j = 0; j < n_cap; j++ )
+            {
+                vtess.push_back( vmax + TMAGIC * j / (n_cap -1) );
+            }
+        }
+
+        m_Surface.get_vconst_curve( c1, vlelow );
+        m_Surface.get_vconst_curve( c2, vleup );
+
+        if ( !c1.abouteq( c2, tol * tol ) ) // Leading edge is not repeated.
+        {
+            for ( j = 0; j < n_cap * 2 - 1; j++ )
+            {
+                vtess.push_back( vlelow + TMAGIC * j / (n_cap -1) );
+            }
+        }
+
+        // Sort parameters
+        std::sort( vtess.begin(), vtess.end() );
+
+        // Remove duplicate parameters
+        vector < double >::iterator sit;
+        sit=std::unique( vtess.begin(), vtess.end() );
+        vtess.resize( distance( vtess.begin(), sit ) );
+    }
+    else if ( IsMagicVParm() && IsHalfBOR() ) // This case applies to upper/lower bodies of revolution
+    {
+        vmin += TMAGIC;
+        vmax -= TMAGIC;
+
+        vtess.resize(nv);
+        int j = 0;
+        if ( degen )
+        {
+            vtess[j] = vabsmin;
+            j++;
+        }
+        for ( ; j < nv; ++j )
+        {
+            vtess[j] = vmin + ( vmax - vmin ) * Cluster( static_cast<double>( j ) / ( nv - 1 ), m_TECluster, m_LECluster );
+        }
+        if ( degen )
+        {
+            vtess[j] = vabsmax;
+        }
+
+        if ( degen ) // DegenGeom, don't tessellate blunt TE or LE.
+        {
+            return;
+        }
+
+        piecewise_curve_type c1, c2;
+        m_Surface.get_vconst_curve( c1, vabsmin );
+        m_Surface.get_vconst_curve( c2, vmin );
+
+        // Note: piecewise_curve_type::abouteq test is based on distance squared.
+        if ( !c1.abouteq( c2, tol * tol ) ) // V Min edge is not repeated.
+        {
+            for ( j = 0; j < n_cap; j++ )
+            {
+                vtess.push_back( vabsmin + TMAGIC * j / (n_cap -1) );
+            }
+        }
+
+        m_Surface.get_vconst_curve( c1, vabsmax );
+        m_Surface.get_vconst_curve( c2, vmax );
+
+        if ( !c1.abouteq( c2, tol * tol ) ) // V Max edge is not repeated.
+        {
+            for ( j = 0; j < n_cap; j++ )
             {
                 vtess.push_back( vmax + TMAGIC * j / (n_cap -1) );
             }
@@ -736,7 +1133,7 @@ void VspSurf::SplitTesselate( int num_u, int num_v, vector< vector< vector< vec3
     SplitTesselate( num_u_vec, num_v, pnts, norms, n_cap );
 }
 
-void VspSurf::Tesselate( const vector<int> &num_u, int num_v, std::vector< vector< vec3d > > & pnts,  std::vector< vector< vec3d > > & norms,  std::vector< vector< vec3d > > & uw_pnts, const int &n_cap, bool degen ) const
+void VspSurf::Tesselate( const vector<int> &num_u, int num_v, std::vector< vector< vec3d > > & pnts,  std::vector< vector< vec3d > > & norms,  std::vector< vector< vec3d > > & uw_pnts, const int &n_cap, bool degen, const std::vector<int> & umerge ) const
 {
     if( m_Surface.number_u_patches() == 0 || m_Surface.number_v_patches() == 0 )
     {
@@ -746,12 +1143,12 @@ void VspSurf::Tesselate( const vector<int> &num_u, int num_v, std::vector< vecto
     std::vector<double> u, v;
 
     MakeVTess( num_v, v, n_cap, degen );
-    MakeUTess( num_u, u );
+    MakeUTess( num_u, u, umerge );
 
     Tesselate( u, v, pnts, norms, uw_pnts );
 }
 
-void VspSurf::SplitTesselate( const vector<int> &num_u, int num_v, std::vector< vector< vector< vec3d > > > & pnts,  std::vector< vector< vector< vec3d > > > & norms, const int &n_cap ) const
+void VspSurf::SplitTesselate( const vector<int> &num_u, int num_v, std::vector< vector< vector< vec3d > > > & pnts,  std::vector< vector< vector< vec3d > > > & norms, const int &n_cap, const std::vector<int> & umerge ) const
 {
     if( m_Surface.number_u_patches() == 0 || m_Surface.number_v_patches() == 0 )
     {
@@ -761,7 +1158,7 @@ void VspSurf::SplitTesselate( const vector<int> &num_u, int num_v, std::vector< 
     std::vector<double> u, v;
 
     MakeVTess( num_v, v, n_cap, false );
-    MakeUTess( num_u, u );
+    MakeUTess( num_u, u, umerge );
 
     SplitTesselate( m_UFeature, m_WFeature, u, v, pnts, norms );
 }
@@ -788,13 +1185,38 @@ void VspSurf::Tesselate( const vector<double> &u, const vector<double> &v, std::
         for ( surface_index_type j = 0; j < nv; j++ )
         {
             pnts[i][j] = ptmat[i][j];
+
+            vec3d norm = nmat[i][j];
+            if ( norm.mag() < 1e-6 ) // Zero normal vector
+            {
+                double tmax = GetWMax();
+                double thalf = 0.5 * GetWMax();
+                if ( v[j] <= TMAGIC ) // Near TE lower
+                {
+                    norm = CompNorm( u[i], TMAGIC + 1e-6 );
+                }
+                else if ( v[j] <= thalf && v[j] >= ( thalf - TMAGIC ) ) // Near leading edge
+                {
+                    norm = CompNorm( u[i], thalf - ( TMAGIC + 1e-6 ) );
+                }
+                else if ( v[j] >= thalf && v[j] <= ( thalf + TMAGIC ) ) // Near leading edge
+                {
+                    norm = CompNorm( u[i], thalf + TMAGIC + 1e-6 );
+                }
+                else if ( v[j] >= ( tmax - TMAGIC ) ) // Near TE upper
+                {
+                    norm = CompNorm( u[i], tmax - ( TMAGIC + 1e-6 ) );
+                }
+                norm.normalize();
+            }
+
             if ( m_FlipNormal )
             {
-                norms[i][j] = -nmat[i][j];
+                norms[i][j] = -1.0 * norm;
             }
             else
             {
-                norms[i][j] = nmat[i][j];
+                norms[i][j] = norm;
             }
             uw_pnts[i][j].set_xyz( u[i], v[j], 0.0 );
         }
@@ -817,7 +1239,7 @@ void VspSurf::SplitTesselate( const vector<double> &usplit, const vector<double>
         }
         for ( ; j < u.size(); j++ )
         {
-            double dnew = fabs( u[j] - usplit[i] );
+            double dnew = std::abs( u[j] - usplit[i] );
             if ( dnew < d )
             {
                 d = dnew;
@@ -840,7 +1262,7 @@ void VspSurf::SplitTesselate( const vector<double> &usplit, const vector<double>
         }
         for ( ; j < v.size(); j++ )
         {
-            double dnew = fabs( v[j] - vsplit[i] );
+            double dnew = std::abs( v[j] - vsplit[i] );
             if ( dnew < d )
             {
                 d = dnew;
@@ -960,7 +1382,7 @@ void VspSurf::TessAdaptLine( double umin, double umax, double wmin, double wmax,
     }
 }
 
-void VspSurf::BuildFeatureLines()
+void VspSurf::BuildFeatureLines( bool force_xsec_flag)
 {
     if ( m_Surface.number_u_patches() > 0 && m_Surface.number_v_patches() > 0 )
     {
@@ -975,28 +1397,45 @@ void VspSurf::BuildFeatureLines()
         m_UFeature.push_back( umin );
         m_UFeature.push_back( umax );
 
-        if ( GetSurfType() == vsp::WING_SURF )
+        if ( GetSurfType() == vsp::WING_SURF || force_xsec_flag )
         {
             // Force all patch boundaries in u direction.
-            vector < double > pmap;
-            m_Surface.get_pmap_u( pmap );
-            m_UFeature.insert( m_UFeature.end(), pmap.begin(), pmap.end() );
+            for ( double u = umin; u <= umax; u++ )
+            {
+                m_UFeature.push_back( u );
+            }
         }
 
         // Add start/mid/end curves.
         double vmin = m_Surface.get_v0();
         double vmax = m_Surface.get_vmax();
         double vrng = vmax - vmin;
+        double vmid = vmin + vrng * 0.5;
 
         m_WFeature.push_back( vmin );
-        m_WFeature.push_back( vmin + 0.5 * vrng );
+        m_WFeature.push_back( vmid );
         m_WFeature.push_back( vmax );
 
         // If fuse-type, add .25 and .75 curves.
-        if ( GetSurfType() != vsp::WING_SURF )
+        if ( GetSurfType() != vsp::WING_SURF && GetSurfType() != vsp::PROP_SURF )
         {
             m_WFeature.push_back( vmin + 0.25 * vrng );
             m_WFeature.push_back( vmin + 0.75 * vrng );
+        }
+        else
+        {
+            if ( IsHalfBOR() )
+            {
+                m_WFeature.push_back(vmin + TMAGIC);
+                m_WFeature.push_back(vmax - TMAGIC);
+            }
+            else
+            {
+                m_WFeature.push_back(vmin + TMAGIC);
+                m_WFeature.push_back(vmid - TMAGIC);
+                m_WFeature.push_back(vmid + TMAGIC);
+                m_WFeature.push_back(vmax - TMAGIC);
+            }
         }
 
         // Sort feature parameters
@@ -1029,17 +1468,35 @@ void VspSurf::BuildFeatureLines()
     }
 }
 
-bool VspSurf::CapUMin(int CapType)
+bool VspSurf::CapUMin(int CapType, double len, double str, double offset, bool swflag)
 {
-    if (CapType == NO_END_CAP)
+    if (CapType == vsp::NO_END_CAP)
     {
         ResetUWSkip();
         return false;
     }
-    capped_creator_type cc;
+    multicap_creator_type cc;
     bool rtn_flag;
 
-    rtn_flag = cc.set_conditions(m_Surface, 1.0, capped_creator_type::CAP_UMIN);
+    int captype = multicap_creator_type::FLAT;
+
+    switch( CapType ){
+      case vsp::FLAT_END_CAP:
+        captype = multicap_creator_type::FLAT;
+        break;
+      case vsp::ROUND_END_CAP:
+        captype = multicap_creator_type::ROUND;
+        break;
+      case vsp::EDGE_END_CAP:
+        captype = multicap_creator_type::EDGE;
+        break;
+      case vsp::SHARP_END_CAP:
+        captype = multicap_creator_type::SHARP;
+        break;
+    }
+
+    rtn_flag = cc.set_conditions(m_Surface, captype, 1.0, multicap_creator_type::CAP_UMIN, len, offset, str, swflag );
+
     if (!rtn_flag)
     {
       ResetUWSkip();
@@ -1047,6 +1504,7 @@ bool VspSurf::CapUMin(int CapType)
     }
 
     rtn_flag = cc.create(m_Surface);
+
     if (!rtn_flag)
     {
       ResetUWSkip();
@@ -1058,17 +1516,35 @@ bool VspSurf::CapUMin(int CapType)
     return true;
 }
 
-bool VspSurf::CapUMax(int CapType)
+bool VspSurf::CapUMax(int CapType, double len, double str, double offset, bool swflag)
 {
-    if (CapType == NO_END_CAP)
+    if (CapType == vsp::NO_END_CAP)
     {
       ResetUWSkip();
       return false;
     }
-    capped_creator_type cc;
+    multicap_creator_type cc;
     bool rtn_flag;
 
-    rtn_flag = cc.set_conditions(m_Surface, 1.0, capped_creator_type::CAP_UMAX);
+    int captype = multicap_creator_type::FLAT;
+
+    switch( CapType ){
+      case vsp::FLAT_END_CAP:
+        captype = multicap_creator_type::FLAT;
+        break;
+      case vsp::ROUND_END_CAP:
+        captype = multicap_creator_type::ROUND;
+        break;
+      case vsp::EDGE_END_CAP:
+        captype = multicap_creator_type::EDGE;
+        break;
+      case vsp::SHARP_END_CAP:
+        captype = multicap_creator_type::SHARP;
+        break;
+    }
+
+    rtn_flag = cc.set_conditions(m_Surface, captype, 1.0, multicap_creator_type::CAP_UMAX, len, offset, str, swflag );
+
     if (!rtn_flag)
     {
       ResetUWSkip();
@@ -1076,6 +1552,7 @@ bool VspSurf::CapUMax(int CapType)
     }
 
     rtn_flag = cc.create(m_Surface);
+
     if (!rtn_flag)
     {
       ResetUWSkip();
@@ -1087,7 +1564,7 @@ bool VspSurf::CapUMax(int CapType)
 
 bool VspSurf::CapWMin(int CapType)
 {
-    if (CapType == NO_END_CAP)
+    if (CapType == vsp::NO_END_CAP)
       return false;
 
     std::cout << "Am Capping WMin on this one!" << std::endl;
@@ -1096,18 +1573,22 @@ bool VspSurf::CapWMin(int CapType)
 
 bool VspSurf::CapWMax(int CapType)
 {
-    if (CapType == NO_END_CAP)
+    if (CapType == vsp::NO_END_CAP)
       return false;
 
     std::cout << "Am Capping WMax on this one!" << std::endl;
     return false;
 }
 
-void VspSurf::SplitSurfs( const piecewise_surface_type &basesurf, vector< piecewise_surface_type > &surfvec )
+void VspSurf::SplitSurfs( vector< piecewise_surface_type > &surfvec )
 {
-    surfvec.push_back( basesurf );
+    SplitSurfsU( surfvec, m_UFeature );
+    SplitSurfsW( surfvec, m_WFeature );
+}
 
-    for ( int i = 0; i < m_UFeature.size(); ++i )
+void SplitSurfsU( vector< piecewise_surface_type > &surfvec, const vector < double > &USplit )
+{
+    for ( int i = 0; i < USplit.size(); ++i )
     {
         vector < piecewise_surface_type > splitsurfvec;
         for ( int j = 0; j < surfvec.size(); j++ )
@@ -1116,35 +1597,18 @@ void VspSurf::SplitSurfs( const piecewise_surface_type &basesurf, vector< piecew
 
             s = surfvec[j];
 
-            if ( s.get_u0() < m_UFeature[i] && s.get_umax() > m_UFeature[i] )
+            if ( s.get_u0() < USplit[i] && s.get_umax() > USplit[i] )
             {
-                s.split_u( s1, s2, m_UFeature[i] );
-                splitsurfvec.push_back( s1 );
-                splitsurfvec.push_back( s2 );
-            }
-            else
-            {
-                splitsurfvec.push_back( s );
-            }
-        }
-        surfvec = splitsurfvec;
-    }
+                s.split_u( s1, s2, USplit[i] );
 
-
-    for ( int i = 0; i < m_WFeature.size(); ++i )
-    {
-        vector < piecewise_surface_type > splitsurfvec;
-        for ( int j = 0; j < surfvec.size(); j++ )
-        {
-            piecewise_surface_type s, s1, s2;
-
-            s = surfvec[j];
-
-            if ( s.get_v0() < m_WFeature[i] && s.get_vmax() > m_WFeature[i] )
-            {
-                s.split_v( s1, s2, m_WFeature[i] );
-                splitsurfvec.push_back( s1 );
-                splitsurfvec.push_back( s2 );
+                if ( s1.number_u_patches() > 0 && s1.number_v_patches() > 0 )
+                {
+                    splitsurfvec.push_back( s1 );
+                }
+                if ( s2.number_u_patches() > 0 && s2.number_v_patches() > 0 )
+                {
+                    splitsurfvec.push_back( s2 );
+                }
             }
             else
             {
@@ -1155,57 +1619,113 @@ void VspSurf::SplitSurfs( const piecewise_surface_type &basesurf, vector< piecew
     }
 }
 
+void SplitSurfsW( vector< piecewise_surface_type > &surfvec, const vector < double > &WSplit )
+{
+    for ( int i = 0; i < WSplit.size(); ++i )
+    {
+        vector < piecewise_surface_type > splitsurfvec;
+        for ( int j = 0; j < surfvec.size(); j++ )
+        {
+            piecewise_surface_type s, s1, s2;
+
+            s = surfvec[j];
+
+            if ( s.get_v0() < WSplit[i] && s.get_vmax() > WSplit[i] )
+            {
+                s.split_v( s1, s2, WSplit[i] );
+
+                if ( s1.number_u_patches() > 0 && s1.number_v_patches() > 0 )
+                {
+                    splitsurfvec.push_back( s1 );
+                }
+                if ( s2.number_u_patches() > 0 && s2.number_v_patches() > 0 )
+                {
+                    splitsurfvec.push_back( s2 );
+                }
+            }
+            else
+            {
+                splitsurfvec.push_back( s );
+            }
+        }
+        surfvec = splitsurfvec;
+    }
+}
+
+// Check for degenerate patches by looking for coincident corners and edges.
+// This will return false for normal watertight surfaces, so it should only be
+// used to test patches from split surfaces.
+bool VspSurf::CheckValidPatch( const piecewise_surface_type &surf )
+{
+    if ( surf.number_u_patches() == 0 || surf.number_v_patches() == 0 )
+    {
+        // Empty surface.
+        return false;
+    }
+
+    double umin, vmin, umax, vmax;
+    surf.get_parameter_min( umin, vmin );
+    surf.get_parameter_max( umax, vmax );
+
+    surface_point_type p1( surf.f( umin, vmin ) );
+    surface_point_type p2( surf.f( umax, vmin ) );
+    surface_point_type p3( surf.f( umax, vmax ) );
+    surface_point_type p4( surf.f( umin, vmax ) );
+
+    double d1 = ( p2 - p1 ).norm();
+    double d2 = ( p3 - p2 ).norm();
+    double d3 = ( p4 - p3 ).norm();
+    double d4 = ( p1 - p4 ).norm();
+
+    double tol = 1.0e-8;
+
+    if ( ( d1 < tol && d2 < tol ) || ( d2 < tol && d3 < tol ) || ( d3 < tol && d4 < tol ) || ( d4 < tol && d1 < tol ) )
+    {
+        // Degenerate surface, skip it.
+        // Two consecutive edges have collapsed, i.e. three corners are coincident.
+        return false;
+    }
+
+    piecewise_curve_type c1, c2;
+    surf.get_umin_bndy_curve( c1 );
+    surf.get_umax_bndy_curve( c2 );
+
+    // Note: piecewise_curve_type::abouteq test is based on distance squared.
+    if ( c1.abouteq( c2, tol * tol ) )
+    {
+        // Degenerate surface, skip it.
+        // Opposite edges are equal.
+        return false;
+    }
+
+    surf.get_vmin_bndy_curve( c1 );
+    surf.get_vmax_bndy_curve( c2 );
+
+    if ( c1.abouteq( c2, tol * tol ) )
+    {
+        // Degenerate surface, skip it.
+        // Opposite edges are equal.
+        return false;
+    }
+
+    // Passed all tests, valid surface.
+    return true;
+}
+
 void VspSurf::FetchXFerSurf( const std::string &geom_id, int surf_ind, int comp_ind, vector< XferSurf > &xfersurfs )
 {
     vector < piecewise_surface_type > surfvec;
-    SplitSurfs( m_Surface, surfvec );
+    surfvec.push_back( m_Surface );
+    SplitSurfs( surfvec );
 
     int num_sections = surfvec.size();
 
     for ( int isect = 0; isect < num_sections; isect++ )
     {
         piecewise_surface_type surf = surfvec[isect];
-        double umin, vmin, umax, vmax;
-        surf.get_parameter_min( umin, vmin );
-        surf.get_parameter_max( umax, vmax );
 
-        surface_point_type p1( surf.f( umin, vmin ) );
-        surface_point_type p2( surf.f( umax, vmin ) );
-        surface_point_type p3( surf.f( umax, vmax ) );
-        surface_point_type p4( surf.f( umin, vmax ) );
-
-        double d1 = ( p2 - p1 ).norm();
-        double d2 = ( p3 - p2 ).norm();
-        double d3 = ( p4 - p3 ).norm();
-        double d4 = ( p1 - p4 ).norm();
-
-        double tol = 1.0e-8;
-
-        if ( ( d1 < tol && d2 < tol ) || ( d2 < tol && d3 < tol ) || ( d3 < tol && d4 < tol ) || ( d4 < tol && d1 < tol ) )
+        if ( !CheckValidPatch( surf ) )
         {
-            // Degenerate surface, skip it.
-            // Two consecutive edges have collapsed, i.e. three corners are coincident.
-            continue;
-        }
-
-        piecewise_curve_type c1, c2;
-        surf.get_uconst_curve( c1, umin );
-        surf.get_uconst_curve( c2, umax );
-
-        if ( c1.abouteq( c2, tol ) )
-        {
-            // Degenerate surface, skip it.
-            // Opposite edges are equal.
-            continue;
-        }
-
-        surf.get_vconst_curve( c1, vmin );
-        surf.get_vconst_curve( c2, vmax );
-
-        if ( c1.abouteq( c2, tol ) )
-        {
-            // Degenerate surface, skip it.
-            // Opposite edges are equal.
             continue;
         }
 
@@ -1246,38 +1766,55 @@ void VspSurf::ExtractCPts( piecewise_surface_type &s, vector< vector< int > > &p
     }
 
     allPntVec.clear();
+    allPntVec.reserve( nupts * nvpts );
 
     for( ip = 0; ip < nupatch; ++ip )
     {
         for( jp = 0; jp < nvpatch; ++jp )
         {
             surface_patch_type::index_type icp, jcp;
+            surface_patch_type::index_type ilim = maxu;
+            surface_patch_type::index_type jlim = maxv;
 
             surface_patch_type *patch = s.get_patch( ip, jp );
 
             patch->promote_u_to( maxu );
             patch->promote_v_to( maxv );
 
-            for( icp = 0; icp <= maxu; ++icp )
-                for( jcp = 0; jcp <= maxv; ++jcp )
+            if ( ip == nupatch - 1 ) // Last u patch
+            {
+                ilim = maxu + 1;
+            }
+
+            if ( jp == nvpatch - 1 ) // Last u patch
+            {
+                jlim = maxv + 1;
+            }
+
+            for( icp = 0; icp < ilim; ++icp )
+            {
+                for( jcp = 0; jcp < jlim; ++jcp )
                 {
                     surface_patch_type::point_type p = patch->get_control_point( icp, jcp );
                     ptindxs[ ip * maxu + icp ][ jp * maxv + jcp ] = allPntVec.size();
                     allPntVec.push_back( vec3d( p[0], p[1], p[2] ) );
                 }
+            }
         }
     }
 }
 
 
-void VspSurf::ToSTEP_BSpline_Quilt( STEPutil * step, vector<SdaiB_spline_surface_with_knots *> &surfs, bool splitsurf, bool mergepts, bool tocubic, double tol )
+void VspSurf::ToSTEP_BSpline_Quilt( STEPutil * step, vector<SdaiB_spline_surface_with_knots *> &surfs, bool splitsurf, bool mergepts, bool tocubic, double tol, bool trimte, const vector < double > &USplit, const vector < double > &WSplit )
 {
     // Make copy for local changes.
     piecewise_surface_type s( m_Surface );
 
-    if( !m_FlipNormal )
+    if ( trimte && m_MagicVParm )
     {
-        s.reverse_v();
+        piecewise_surface_type s1, s2;
+        s.split_v( s1, s2, s.get_v0() + TMAGIC );
+        s2.split_v( s, s1, s.get_vmax() - TMAGIC );
     }
 
     if ( tocubic )
@@ -1287,18 +1824,29 @@ void VspSurf::ToSTEP_BSpline_Quilt( STEPutil * step, vector<SdaiB_spline_surface
     }
 
     vector < piecewise_surface_type > surfvec;
+    surfvec.push_back( s );
     if ( splitsurf )
     {
-        SplitSurfs( s, surfvec );
+        SplitSurfs( surfvec );
     }
-    else
-    {
-        surfvec.push_back( s );
-    }
+
+    SplitSurfsU( surfvec, USplit );
+    SplitSurfsW( surfvec, WSplit );
 
     for ( int isurf = 0; isurf < surfvec.size(); isurf++ )
     {
         s = surfvec[isurf];
+
+        if( !m_FlipNormal )
+        {
+            s.reverse_v();
+        }
+
+        // Don't export degenerate split patches
+        if ( splitsurf && !CheckValidPatch( s ) )
+        {
+            continue;
+        }
 
         piecewise_surface_type::index_type ip, jp;
         piecewise_surface_type::index_type nupatch, nvpatch;
@@ -1478,14 +2026,16 @@ void VspSurf::ToSTEP_Bez_Patches( STEPutil * step, vector<SdaiBezier_surface *> 
     }
 }
 
-void VspSurf::ToIGES( DLL_IGES &model, bool splitsurf, bool tocubic, double tol )
+void VspSurf::ToIGES( DLL_IGES &model, bool splitsurf, bool tocubic, double tol, bool trimTE, const vector < double > &USplit, const vector < double > &WSplit )
 {
     // Make copy for local changes.
     piecewise_surface_type s( m_Surface );
 
-    if( !m_FlipNormal )
+    if ( trimTE && m_MagicVParm )
     {
-        s.reverse_v();
+        piecewise_surface_type s1, s2;
+        s.split_v( s1, s2, s.get_v0() + TMAGIC );
+        s2.split_v( s, s1, s.get_vmax() - TMAGIC );
     }
 
     if ( tocubic )
@@ -1495,20 +2045,30 @@ void VspSurf::ToIGES( DLL_IGES &model, bool splitsurf, bool tocubic, double tol 
     }
 
     vector < piecewise_surface_type > surfvec;
+    surfvec.push_back( s );
     if ( splitsurf )
     {
-        SplitSurfs( s, surfvec );
+        SplitSurfs( surfvec );
     }
-    else
-    {
-        surfvec.push_back( s );
-    }
+
+    SplitSurfsU( surfvec, USplit );
+    SplitSurfsW( surfvec, WSplit );
 
     for ( int is = 0; is < surfvec.size(); is++ )
     {
         s = surfvec[is];
 
-        piecewise_surface_type::index_type ip, jp;
+        if( !m_FlipNormal )
+        {
+            s.reverse_v();
+        }
+
+        // Don't export degenerate split patches
+        if ( splitsurf && !CheckValidPatch( s ) )
+        {
+            continue;
+        }
+
         piecewise_surface_type::index_type nupatch, nvpatch;
         piecewise_surface_type::index_type maxu, maxv;
         piecewise_surface_type::index_type nupts, nvpts;
@@ -1575,4 +2135,50 @@ void VspSurf::IGESKnots( int deg, int npatch, vector< double > &knot )
     {
         knot.push_back( 1.0 * npatch );
     }
+}
+
+void VspSurf::Offset( vec3d offvec )
+{
+    threed_point_type p;
+    p << offvec.x(), offvec.y(), offvec.z();
+
+    m_Surface.translate( p );
+}
+
+void VspSurf::OffsetX( double x )
+{
+    vec3d off( x, 0, 0 );
+    Offset( off );
+}
+
+void VspSurf::OffsetY( double y )
+{
+    vec3d off( 0, y, 0 );
+    Offset( off );
+}
+
+void VspSurf::OffsetZ( double z )
+{
+    vec3d off( 0, 0, z );
+    Offset( off );
+}
+
+void VspSurf::Scale( double s )
+{
+    m_Surface.scale( s );
+}
+
+void VspSurf::ScaleX( double s )
+{
+    m_Surface.scale_x( s );
+}
+
+void VspSurf::ScaleY( double s )
+{
+    m_Surface.scale_y( s );
+}
+
+void VspSurf::ScaleZ( double s )
+{
+    m_Surface.scale_z( s );
 }

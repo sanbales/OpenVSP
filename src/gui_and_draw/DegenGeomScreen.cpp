@@ -7,7 +7,6 @@
 
 #include "DegenGeomScreen.h"
 #include "CfdMeshMgr.h"
-#include "Vehicle.h"
 
 DegenGeomScreen::DegenGeomScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 375, 365, "Degen Geom - Compute Models, File IO" )
 {
@@ -178,10 +177,10 @@ void DegenGeomScreen::GuiDeviceCallBack( GuiDevice* device )
         if ( vehiclePtr->getExportDegenGeomCsvFile() || vehiclePtr->getExportDegenGeomMFile() )
         {
             m_TextDisplay->buffer()->append("--------------------------------\n");
-			m_TextDisplay->buffer()->append("\nWriting output...\n");
-			Fl::flush();
+            m_TextDisplay->buffer()->append("\nWriting output...\n");
+            Fl::flush();
 
-			m_TextDisplay->buffer()->append( vehiclePtr->WriteDegenGeomFile().c_str() );
+            m_TextDisplay->buffer()->append( vehiclePtr->WriteDegenGeomFile().c_str() );
         }
     }
 

@@ -3,6 +3,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 SET(UTIL_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "Path to util headers")
 
 INCLUDE_DIRECTORIES(
+    ${LIBXML2_INCLUDE_DIR}
     ${NANOFLANN_INCLUDE_DIR}
     ${XMLVSP_INCLUDE_DIR}
     ${UTIL_INCLUDE_DIR}
@@ -16,7 +17,9 @@ INCLUDE_DIRECTORIES(
 
 ADD_LIBRARY(util
 BndBox.cpp
+Cluster.cpp
 DrawObj.cpp
+DXFUtil.cpp
 FileUtil.cpp
 Matrix.cpp
 MessageMgr.cpp
@@ -27,16 +30,21 @@ STEPutil.cpp
 StlHelper.cpp
 StringUtil.cpp
 SuperEllipse.cpp
+UnitConversion.cpp
 Util.cpp
 UtilTestSuite.cpp
 Vec2d.cpp
 Vec3d.cpp
+VKTAirfoil.cpp
+Vsp1DCurve.cpp
 VspCurve.cpp
 VspSurf.cpp
 BndBox.h
+Cluster.h
 Combination.h
 Defines.h
 DrawObj.h
+DXFUtil.h
 FileUtil.h
 GuiDeviceEnums.h
 Matrix.h
@@ -49,11 +57,14 @@ STEPutil.h
 StreamUtil.h
 StringUtil.h
 SuperEllipse.h
+UnitConversion.h
 Util.h
 UtilTestSuite.h
 UsingCpp11.h
 Vec2d.h
 Vec3d.h
+VKTAirfoil.h
+Vsp1DCurve.h
 VspCurve.h
 VspSurf.h
 WriteMatlab.h
@@ -62,4 +73,5 @@ XferSurf.h
 
 ADD_DEPENDENCIES( util
 STEPCODE
+
 )

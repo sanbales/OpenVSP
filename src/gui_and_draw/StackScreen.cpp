@@ -8,12 +8,7 @@
 #include "StackScreen.h"
 #include "ScreenMgr.h"
 #include "StackGeom.h"
-#include "EventMgr.h"
-#include "Vehicle.h"
 #include "ParmMgr.h"
-#include "APIDefines.h"
-
-#include <assert.h>
 
 using namespace vsp;
 
@@ -73,6 +68,7 @@ StackScreen::StackScreen( ScreenMgr* mgr ) : SkinScreen( mgr, 400, 630, "Stack" 
     m_XSecLayout.AddSlider( m_XSecXRotSlider, "Rot X", 90.0, "%6.5f" );
     m_XSecLayout.AddSlider( m_XSecYRotSlider, "Rot Y", 90.0, "%6.5f" );
     m_XSecLayout.AddSlider( m_XSecZRotSlider, "Rot Z", 90.0, "%6.5f" );
+    m_XSecLayout.AddSlider( m_XSecSpinSlider, "Spin",  2.0, "%6.5f" );
     m_XSecLayout.AddYGap();
 
     m_XSecLayout.AddDividerBox( "Type" );
@@ -90,6 +86,8 @@ StackScreen::StackScreen( ScreenMgr* mgr ) : SkinScreen( mgr, 400, 630, "Stack" 
     m_XSecTypeChoice.AddItem( "WEDGE" );
     m_XSecTypeChoice.AddItem( "BEZIER" );
     m_XSecTypeChoice.AddItem( "AF_FILE" );
+    m_XSecTypeChoice.AddItem( "CST_AIRFOIL" );
+    m_XSecTypeChoice.AddItem( "KARMAN_TREFFTZ" );
 
     m_XSecLayout.SetSameLineFlag( true );
     m_XSecLayout.AddChoice( m_XSecTypeChoice, "Choose Type:", m_XSecLayout.GetButtonWidth() );
@@ -110,8 +108,14 @@ StackScreen::StackScreen( ScreenMgr* mgr ) : SkinScreen( mgr, 400, 630, "Stack" 
     m_SuperGroup.AddSlider( m_SuperHeightSlider, "Height", 10, "%6.5f" );
     m_SuperGroup.AddSlider( m_SuperWidthSlider,  "Width", 10, "%6.5f" );
     m_SuperGroup.AddYGap();
+    m_SuperGroup.AddSlider( m_SuperMaxWidthLocSlider, "MaxWLoc", 2, "%6.5f" );
+    m_SuperGroup.AddYGap();
     m_SuperGroup.AddSlider( m_SuperMSlider, "M", 10, "%6.5f" );
     m_SuperGroup.AddSlider( m_SuperNSlider, "N", 10, "%6.5f" );
+    m_SuperGroup.AddYGap();
+    m_SuperGroup.AddButton( m_SuperToggleSym, "T/B Symmetric Exponents" );
+    m_SuperGroup.AddSlider( m_SuperM_botSlider, "M Bottom", 10, "%6.5f" );
+    m_SuperGroup.AddSlider( m_SuperN_botSlider, "N Bottom", 10, "%6.5f" );
 
     //==== Circle XSec ====//
     m_CircleGroup.SetGroupAndScreen( AddSubGroup( xsec_tab, 5 ), this );
@@ -133,7 +137,12 @@ StackScreen::StackScreen( ScreenMgr* mgr ) : SkinScreen( mgr, 400, 630, "Stack" 
     m_RoundedRectGroup.AddSlider( m_RRHeightSlider, "Height", 10, "%6.5f" );
     m_RoundedRectGroup.AddSlider( m_RRWidthSlider,  "Width", 10, "%6.5f" );
     m_RoundedRectGroup.AddYGap();
+    m_RoundedRectGroup.AddSlider( m_RRSkewSlider, "Skew", 10, "%6.5f" );
+    m_RoundedRectGroup.AddSlider( m_RRKeystoneSlider, "Keystone", 10, "%6.5f");
+    m_RoundedRectGroup.AddYGap();
     m_RoundedRectGroup.AddSlider( m_RRRadiusSlider, "Radius", 10, "%6.5f" );
+    m_RoundedRectGroup.AddYGap();
+    m_RoundedRectGroup.AddButton( m_RRKeyCornerButton, "Key Corner" );
 
     //==== General Fuse XSec ====//
     m_GenGroup.SetGroupAndScreen( AddSubGroup( xsec_tab, 5 ), this );
@@ -229,6 +238,73 @@ StackScreen::StackScreen( ScreenMgr* mgr ) : SkinScreen( mgr, 400, 630, "Stack" 
     m_AfFileGroup.AddSlider( m_AfFileChordSlider, "Chord", 10, "%7.3f" );
     m_AfFileGroup.AddYGap();
     m_AfFileGroup.AddButton( m_AfFileInvertButton, "Invert Airfoil" );
+    
+    //==== CST Airfoil ====//
+    m_CSTAirfoilGroup.SetGroupAndScreen( AddSubGroup( xsec_tab, 5 ), this );
+    m_CSTAirfoilGroup.SetY( start_y );
+    m_CSTAirfoilGroup.AddYGap();
+    m_CSTAirfoilGroup.AddButton( m_CSTContLERadButton, "Enforce Continuous LE Radius" );
+    m_CSTAirfoilGroup.AddButton( m_CSTInvertButton, "Invert Airfoil" );
+    m_CSTAirfoilGroup.AddButton( m_CSTEqArcLenButton, "Equal Arc Length Parameterization" );
+
+    m_CSTAirfoilGroup.AddYGap();
+    m_CSTAirfoilGroup.AddSlider( m_CSTChordSlider, "Chord", 10, "%7.3f");
+    
+    m_CSTAirfoilGroup.AddYGap();
+    m_CSTAirfoilGroup.AddDividerBox( "Upper Surface" );
+
+    m_CSTAirfoilGroup.SetSameLineFlag( true );
+    m_CSTAirfoilGroup.SetFitWidthFlag( true );
+
+    m_CSTAirfoilGroup.AddOutput( m_UpDegreeOutput, "Degree", m_CSTAirfoilGroup.GetButtonWidth() * 2 );
+    m_CSTAirfoilGroup.SetFitWidthFlag( false );
+    m_CSTAirfoilGroup.AddButton( m_UpDemoteButton, "Demote" );
+    m_CSTAirfoilGroup.AddButton( m_UpPromoteButton, "Promote" );
+
+    m_CSTAirfoilGroup.ForceNewLine();
+
+    m_CSTAirfoilGroup.SetSameLineFlag( false );
+    m_CSTAirfoilGroup.SetFitWidthFlag( true );
+
+    m_CSTUpCoeffScroll = m_CSTAirfoilGroup.AddFlScroll( 60 );
+
+    m_CSTUpCoeffScroll->type( Fl_Scroll::VERTICAL_ALWAYS );
+    m_CSTUpCoeffScroll->box( FL_BORDER_BOX );
+    m_CSTUpCoeffLayout.SetGroupAndScreen( m_CSTUpCoeffScroll, this );
+
+    m_CSTAirfoilGroup.AddYGap();
+
+    m_CSTAirfoilGroup.AddDividerBox( "Lower Surface" );
+
+    m_CSTAirfoilGroup.SetSameLineFlag( true );
+    m_CSTAirfoilGroup.SetFitWidthFlag( true );
+
+    m_CSTAirfoilGroup.AddOutput( m_LowDegreeOutput, "Degree", m_CSTAirfoilGroup.GetButtonWidth() * 2 );
+    m_CSTAirfoilGroup.SetFitWidthFlag( false );
+    m_CSTAirfoilGroup.AddButton( m_LowDemoteButton, "Demote" );
+    m_CSTAirfoilGroup.AddButton( m_LowPromoteButton, "Promote" );
+
+    m_CSTAirfoilGroup.ForceNewLine();
+
+    m_CSTAirfoilGroup.SetSameLineFlag( false );
+    m_CSTAirfoilGroup.SetFitWidthFlag( true );
+
+    m_CSTLowCoeffScroll = m_CSTAirfoilGroup.AddFlScroll( 60 );
+    m_CSTLowCoeffScroll->type( Fl_Scroll::VERTICAL_ALWAYS );
+    m_CSTLowCoeffScroll->box( FL_BORDER_BOX );
+    m_CSTLowCoeffLayout.SetGroupAndScreen( m_CSTLowCoeffScroll, this );
+
+    //==== VKT AF ====//
+    m_VKTGroup.SetGroupAndScreen( AddSubGroup( xsec_tab, 5 ), this );
+    m_VKTGroup.SetY( start_y );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddSlider( m_VKTChordSlider, "Chord", 10, "%7.3f" );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddSlider( m_VKTEpsilonSlider, "Epsilon", 1, "%7.5f" );
+    m_VKTGroup.AddSlider( m_VKTKappaSlider, "Kappa", 1, "%7.5f" );
+    m_VKTGroup.AddSlider( m_VKTTauSlider, "Tau", 10, "%7.5f" );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddButton( m_VKTInvertButton, "Invert Airfoil" );
 
     DisplayGroup( &m_PointGroup );
 
@@ -286,6 +362,7 @@ bool StackScreen::Update()
         m_XSecXRotSlider.Update( xs->m_XRotate.GetID() );
         m_XSecYRotSlider.Update( xs->m_YRotate.GetID() );
         m_XSecZRotSlider.Update( xs->m_ZRotate.GetID() );
+        m_XSecSpinSlider.Update( xs->m_Spin.GetID() );
 
         if ( firstxs )
         {
@@ -296,6 +373,7 @@ bool StackScreen::Update()
             m_XSecXRotSlider.Deactivate();
             m_XSecYRotSlider.Deactivate();
             m_XSecZRotSlider.Deactivate();
+            m_XSecSpinSlider.Deactivate();
         }
         else
         {
@@ -306,6 +384,7 @@ bool StackScreen::Update()
             m_XSecXRotSlider.Activate();
             m_XSecYRotSlider.Activate();
             m_XSecZRotSlider.Activate();
+            m_XSecSpinSlider.Activate();
         }
 
         if ( lastxs && stackgeom_ptr->m_OrderPolicy() == StackGeom::STACK_LOOP)
@@ -316,6 +395,7 @@ bool StackScreen::Update()
             m_XSecXRotSlider.Deactivate();
             m_XSecYRotSlider.Deactivate();
             m_XSecZRotSlider.Deactivate();
+            m_XSecSpinSlider.Deactivate();
         }
 
         XSecCurve* xsc = xs->GetXSecCurve();
@@ -337,6 +417,21 @@ bool StackScreen::Update()
                 m_SuperWidthSlider.Update( super_xs->m_Width.GetID() );
                 m_SuperMSlider.Update( super_xs->m_M.GetID() );
                 m_SuperNSlider.Update( super_xs->m_N.GetID() );
+                m_SuperToggleSym.Update( super_xs->m_TopBotSym.GetID() );
+                m_SuperM_botSlider.Update( super_xs->m_M_bot.GetID() );
+                m_SuperN_botSlider.Update( super_xs->m_N_bot.GetID() );
+                m_SuperMaxWidthLocSlider.Update( super_xs->m_MaxWidthLoc.GetID() );
+
+                if ( super_xs->m_TopBotSym() )
+                {
+                    m_SuperM_botSlider.Deactivate();
+                    m_SuperN_botSlider.Deactivate();
+                }
+                else if ( !super_xs->m_TopBotSym() )
+                {
+                    m_SuperM_botSlider.Activate();
+                    m_SuperN_botSlider.Activate();
+                }
             }
             else if ( xsc->GetType() == XS_CIRCLE )
             {
@@ -364,6 +459,9 @@ bool StackScreen::Update()
                 m_RRHeightSlider.Update( rect_xs->m_Height.GetID() );
                 m_RRWidthSlider.Update( rect_xs->m_Width.GetID() );
                 m_RRRadiusSlider.Update( rect_xs->m_Radius.GetID() );
+                m_RRKeyCornerButton.Update( rect_xs->m_KeyCornerParm.GetID() );
+                m_RRSkewSlider.Update( rect_xs->m_Skew.GetID() );
+                m_RRKeystoneSlider.Update( rect_xs->m_Keystone.GetID() );
             }
             else if ( xsc->GetType() == XS_GENERAL_FUSE )
             {
@@ -448,6 +546,66 @@ bool StackScreen::Update()
                 m_AfFileInvertButton.Update( affile_xs->m_Invert.GetID() );
                 m_AfFileNameOutput.Update( affile_xs->GetAirfoilName() );
             }
+            else if ( xsc->GetType() == XS_CST_AIRFOIL )
+            {
+                DisplayGroup( &m_CSTAirfoilGroup );
+                CSTAirfoil* cst_xs = dynamic_cast< CSTAirfoil* >( xsc );
+                assert( cst_xs );
+
+                int num_up = cst_xs->m_UpDeg() + 1;
+                int num_low = cst_xs->m_LowDeg() + 1;
+
+                char str[255];
+                sprintf( str, "%d", cst_xs->m_UpDeg() );
+                m_UpDegreeOutput.Update( str );
+                sprintf( str, "%d", cst_xs->m_LowDeg() );
+                m_LowDegreeOutput.Update( str );
+
+                m_CSTChordSlider.Update(cst_xs->m_Chord.GetID());
+                m_CSTInvertButton.Update( cst_xs->m_Invert.GetID() );
+                m_CSTContLERadButton.Update( cst_xs->m_ContLERad.GetID() );
+                m_CSTEqArcLenButton.Update( cst_xs->m_EqArcLen.GetID() );
+
+                if ( ( m_UpCoeffSliderVec.size() != num_up ) || ( m_LowCoeffSliderVec.size() != num_low ) )
+                {
+                    RebuildCSTGroup( cst_xs );
+                }
+
+                for ( int i = 0; i < num_up; i++ )
+                {
+                    Parm *p = cst_xs->m_UpCoeffParmVec[i];
+                    if ( p )
+                    {
+                        m_UpCoeffSliderVec[i].Update( p->GetID() );
+                    }
+                }
+
+                for ( int i = 0; i < num_low; i++ )
+                {
+                    Parm *p = cst_xs->m_LowCoeffParmVec[i];
+                    if ( p )
+                    {
+                        m_LowCoeffSliderVec[i].Update( p->GetID() );
+                    }
+                }
+
+                if ( cst_xs->m_ContLERad() && num_low > 0 )
+                {
+                    m_LowCoeffSliderVec[0].Deactivate();
+                }
+            }
+            else if ( xsc->GetType() == XS_VKT_AIRFOIL )
+            {
+                DisplayGroup( &m_VKTGroup );
+                VKTAirfoil* vkt_xs = dynamic_cast< VKTAirfoil* >( xsc );
+                assert( vkt_xs );
+
+                m_VKTChordSlider.Update( vkt_xs->m_Chord.GetID() );
+                m_VKTEpsilonSlider.Update( vkt_xs->m_Epsilon.GetID() );
+                m_VKTKappaSlider.Update( vkt_xs->m_Kappa.GetID() );
+                m_VKTTauSlider.Update( vkt_xs->m_Tau.GetID() );
+                m_VKTInvertButton.Update( vkt_xs->m_Invert.GetID() );
+            }
         }
     }
     return true;
@@ -471,6 +629,8 @@ void StackScreen::DisplayGroup( GroupLayout* group )
     m_WedgeGroup.Hide();
     m_FuseFileGroup.Hide();
     m_AfFileGroup.Hide();
+    m_CSTAirfoilGroup.Hide();
+    m_VKTGroup.Hide();
 
     m_CurrDisplayGroup = group;
 
@@ -567,6 +727,98 @@ void StackScreen::GuiDeviceCallBack( GuiDevice* gui_device )
             }
         }
     }
+    else if ( gui_device == &m_UpPromoteButton )
+    {
+        int xsid = stackgeom_ptr->GetActiveXSecIndex();
+        XSec* xs = stackgeom_ptr->GetXSec( xsid );
+        if ( xs )
+        {
+            XSecCurve* xsc = xs->GetXSecCurve();
+            if ( xsc )
+            {
+                if ( xsc->GetType() == XS_CST_AIRFOIL  )
+                {
+                    CSTAirfoil* cst_xs = dynamic_cast< CSTAirfoil* >( xsc );
+                    assert( cst_xs );
+
+                    cst_xs->PromoteUpper();
+                    cst_xs->Update();
+                    xs->Update();
+                    stackgeom_ptr->Update();
+                }
+            }
+        }
+    }
+    else if ( gui_device == &m_LowPromoteButton )
+    {
+        int xsid = stackgeom_ptr->GetActiveXSecIndex();
+        XSec* xs = stackgeom_ptr->GetXSec( xsid );
+        if ( xs )
+        {
+            XSecCurve* xsc = xs->GetXSecCurve();
+            if ( xsc )
+            {
+                if ( xsc->GetType() == XS_CST_AIRFOIL  )
+                {
+                    CSTAirfoil* cst_xs = dynamic_cast< CSTAirfoil* >( xsc );
+                    assert( cst_xs );
+
+                    cst_xs->PromoteLower();
+                    cst_xs->Update();
+                    xs->Update();
+                    stackgeom_ptr->Update();
+                }
+            }
+        }
+
+    }
+    else if ( gui_device == &m_UpDemoteButton )
+    {
+        int xsid = stackgeom_ptr->GetActiveXSecIndex();
+        XSec* xs = stackgeom_ptr->GetXSec( xsid );
+        if ( xs )
+        {
+            XSecCurve* xsc = xs->GetXSecCurve();
+            if ( xsc )
+            {
+                if ( xsc->GetType() == XS_CST_AIRFOIL  )
+                {
+                    CSTAirfoil* cst_xs = dynamic_cast< CSTAirfoil* >( xsc );
+                    assert( cst_xs );
+
+                    cst_xs->DemoteUpper();
+                    cst_xs->Update();
+                    xs->Update();
+                    stackgeom_ptr->Update();
+                }
+            }
+        }
+
+    }
+    else if ( gui_device == &m_LowDemoteButton )
+    {
+        int xsid = stackgeom_ptr->GetActiveXSecIndex();
+        XSec* xs = stackgeom_ptr->GetXSec( xsid );
+        if ( xs )
+        {
+            XSecCurve* xsc = xs->GetXSecCurve();
+            if ( xsc )
+            {
+                if ( xsc->GetType() == XS_CST_AIRFOIL  )
+                {
+                    CSTAirfoil* cst_xs = dynamic_cast< CSTAirfoil* >( xsc );
+                    assert( cst_xs );
+
+                    cst_xs->DemoteLower();
+                    cst_xs->Update();
+                    xs->Update();
+                    stackgeom_ptr->Update();
+                }
+            }
+        }
+
+    }
+
 
     SkinScreen::GuiDeviceCallBack( gui_device );
 }
@@ -577,6 +829,51 @@ void StackScreen::CallBack( Fl_Widget *w )
     SkinScreen::CallBack( w );
 }
 
+void StackScreen::RebuildCSTGroup( CSTAirfoil* cst_xs)
+{
+    if ( !cst_xs )
+    {
+        return;
+    }
 
+    if ( !m_CSTUpCoeffScroll || !m_CSTLowCoeffScroll )
+    {
+         return;
+    }
+
+    m_CSTUpCoeffScroll->clear();
+    m_CSTUpCoeffLayout.SetGroup( m_CSTUpCoeffScroll );
+    m_CSTUpCoeffLayout.InitWidthHeightVals();
+
+    m_UpCoeffSliderVec.clear();
+
+    int num_up = cst_xs->m_UpDeg() + 1;
+
+    m_UpCoeffSliderVec.resize( num_up );
+
+    for ( int i = 0; i < num_up; i++ )
+    {
+        m_CSTUpCoeffLayout.AddSlider( m_UpCoeffSliderVec[i], "AUTO_UPDATE", 2, "%9.5f" );
+    }
+
+
+
+
+    m_CSTLowCoeffScroll->clear();
+    m_CSTLowCoeffLayout.SetGroup( m_CSTLowCoeffScroll );
+    m_CSTLowCoeffLayout.InitWidthHeightVals();
+
+    m_LowCoeffSliderVec.clear();
+
+    int num_low = cst_xs->m_LowDeg() + 1;
+
+    m_LowCoeffSliderVec.resize( num_low );
+
+
+    for ( int i = 0; i < num_low; i++ )
+    {
+        m_CSTLowCoeffLayout.AddSlider( m_LowCoeffSliderVec[i], "AUTO_UPDATE", 2, "%9.5f" );
+    }
+}
 
 

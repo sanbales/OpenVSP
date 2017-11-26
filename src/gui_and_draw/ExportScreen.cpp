@@ -7,19 +7,17 @@
 
 #include "ExportScreen.h"
 #include "ScreenMgr.h"
-#include "EventMgr.h"
-#include "Vehicle.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
 #include "STEPOptionsScreen.h"
 #include "IGESOptionsScreen.h"
 #include "STLOptionsScreen.h"
+#include "BEMOptionsScreen.h"
+#include "DXFOptionsScreen.h"
+#include "SVGOptionsScreen.h"
 using namespace vsp;
 
-#include <assert.h>
-
 //==== Constructor ====//
-ExportScreen::ExportScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 150, 25 + (1+10)*20 + 2*15 + 4*6, "Export" )
+ExportScreen::ExportScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 150, 25 + (1+14)*20 + 2*15 + 4*6, "Export" )
 {
     m_SelectedSetIndex = 0;
 
@@ -49,6 +47,10 @@ ExportScreen::ExportScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 150, 25 + (1+10
     m_GenLayout.AddButton( m_X3DButton, "X3D (.x3d)" );
     m_GenLayout.AddButton( m_STEPButton, "STEP (.stp)" );
     m_GenLayout.AddButton( m_IGESButton, "IGES (.igs)" );
+    m_GenLayout.AddButton( m_BEMButton, "Blade Element (.bem)" );
+    m_GenLayout.AddButton( m_DXFButton, "AutoCAD (.dxf)" );
+    m_GenLayout.AddButton( m_SVGButton, "SVG (.svg)" );
+    m_GenLayout.AddButton( m_FacetButton, "Xpatch (.facet)" );
 }
 
 //==== Update Screen ====//
@@ -76,6 +78,8 @@ void ExportScreen::Hide()
 void ExportScreen::LoadSetChoice()
 {
     Vehicle *veh = VehicleMgr.GetVehicle();
+
+    m_ExportSetChoice.ClearItems();
 
     vector <string> setVec = veh->GetSetNameVec();
     for ( int i = 0; i < setVec.size(); i++ )
@@ -140,6 +144,31 @@ void ExportScreen::ExportFile( string &newfile, int write_set, int type )
             newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Write IGES File?", "*.igs" );
         }
     }
+    else if ( type == EXPORT_BEM )
+    {
+        if ( (( BEMOptionsScreen* ) m_ScreenMgr->GetScreen( ScreenMgr::VSP_BEM_OPTIONS_SCREEN ))->ShowBEMOptionsScreen() )
+        {
+            newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Write Blade Element File?", "*.bem" );
+        }
+    }
+    else if ( type == EXPORT_DXF )
+    {
+        if ( (( DXFOptionsScreen* ) m_ScreenMgr->GetScreen( ScreenMgr::VSP_DXF_OPTIONS_SCREEN ))->ShowDXFOptionsScreen() )
+        {
+            newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Write DXF File?", "*.dxf" );
+        }
+    }
+    else if ( type == EXPORT_SVG )
+    {
+        if ( (( SVGOptionsScreen* ) m_ScreenMgr->GetScreen( ScreenMgr::VSP_SVG_OPTIONS_SCREEN ))->ShowSVGOptionsScreen( ) )
+        {
+            newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Write SVG File?", "*.svg" );
+        }
+    }
+    else if ( type == EXPORT_FACET )
+    {
+        newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser("Write Facet File?", "*.facet");
+    }
     else if ( type == -1 )
     {
         return;
@@ -202,9 +231,32 @@ void ExportScreen::GuiDeviceCallBack( GuiDevice* device )
     {
         ExportFile( newfile, m_SelectedSetIndex, EXPORT_IGES );
     }
+    else if ( device == &m_BEMButton )
+    {
+        ExportFile( newfile, m_SelectedSetIndex, EXPORT_BEM );
+    }
+    else if ( device == &m_DXFButton )
+    {
+        ExportFile( newfile, m_SelectedSetIndex, EXPORT_DXF );
+    }
+    else if ( device == &m_SVGButton )
+    {
+        ExportFile( newfile, m_SelectedSetIndex, EXPORT_SVG );
+    }
+    else if ( device == &m_FacetButton )
+    {
+        ExportFile(newfile, m_SelectedSetIndex, EXPORT_FACET);
+    }
     else if (  device == &m_ExportSetChoice )
     {
         m_SelectedSetIndex = m_ExportSetChoice.GetVal();
+
+        Vehicle* veh = m_ScreenMgr->GetVehiclePtr();
+
+        if ( veh )
+        {
+            veh->m_SVGSet.Set( m_SelectedSetIndex );
+        }
     }
 
     m_ScreenMgr->SetUpdateFlag( true );

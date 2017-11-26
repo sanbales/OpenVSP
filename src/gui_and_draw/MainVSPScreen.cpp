@@ -13,14 +13,12 @@
 #include "MainVSPScreen.h"
 #include "MainGLWindow.h"
 #include "ScreenMgr.h"
-#include "Vehicle.h"
 #include "GraphicEngine.h"
 #include "Display.h"
 #include "Camera.h"
 #include "LayoutMgr.h"
 #include "Viewport.h"
 #include <FL/fl_ask.H>
-#include <FL/Fl_Group.H>
 #include "ManageCORScreen.h"
 #include "ManageGeomScreen.h"
 #include "ManageViewScreen.h"
@@ -96,11 +94,11 @@ MainVSPScreen::MainVSPScreen( ScreenMgr* mgr ) : ActionScreen( mgr )
 
     m_TopMenuItem.Init( this, m_MenuBar, "View/Top", FL_F + 5 );
     m_FrontMenuItem.Init( this, m_MenuBar, "View/Front", FL_F + 6 );
-    m_LeftSideMenuItem.Init( this, m_MenuBar, "View/Left Side", FL_F + 7 );
+    m_LeftSideMenuItem.Init( this, m_MenuBar, "View/Left", FL_F + 7 );
     m_LeftIsoMenuItem.Init( this, m_MenuBar, "View/Left Iso", FL_F + 8 );
     m_BottomMenuItem.Init( this, m_MenuBar, "View/Bottom", FL_F + 9 );
     m_RearMenuItem.Init( this, m_MenuBar, "View/Rear", FL_F + 10 );
-    m_RightSideMenuItem.Init( this, m_MenuBar, "View/Right Side", FL_F + 11 );
+    m_RightSideMenuItem.Init( this, m_MenuBar, "View/Right", FL_F + 11 );
     m_RightIsoMenuItem.Init( this, m_MenuBar, "View/Right Iso", FL_F + 12 );
     m_CenterMenuItem.Init( this, m_MenuBar, "View/Center", 'c' );
     m_SetCORMenuItem.Init( this, m_MenuBar, "View/Set Rotation Center", 'r' );
@@ -120,15 +118,19 @@ MainVSPScreen::MainVSPScreen( ScreenMgr* mgr ) : ActionScreen( mgr )
     m_AdvLinkMenuItem.Init( mgr, m_MenuBar, "Model/Adv Link...", ScreenMgr::VSP_ADV_LINK_SCREEN );
     m_UserParmMenuItem.Init( mgr, m_MenuBar, "Model/User Parms...", ScreenMgr::VSP_USER_PARM_SCREEN );
     m_FitModelMenuItem.Init( mgr, m_MenuBar, "Model/Fit Model...", ScreenMgr::VSP_FIT_MODEL_SCREEN );
+    m_SnapToMenuItem.Init( mgr, m_MenuBar, "Model/Snap To...", ScreenMgr::VSP_SNAP_TO_SCREEN );
+    m_VarPresetMenuItem.Init( mgr, m_MenuBar, "Model/Variable Presets...", ScreenMgr::VSP_VAR_PRESET_SCREEN );
 
     m_CompGeomMenuItem.Init( mgr, m_MenuBar, "Analysis/CompGeom...", ScreenMgr::VSP_COMP_GEOM_SCREEN );
-    m_AWAVEMenuItem.Init( mgr, m_MenuBar, "Analysis/Awave Slice...", ScreenMgr::VSP_AWAVE_SCREEN );
     m_PSliceMenuItem.Init( mgr, m_MenuBar, "Analysis/Planar Slice...", ScreenMgr::VSP_PSLICE_SCREEN );
     m_MassPropMenuItem.Init( mgr, m_MenuBar, "Analysis/Mass Prop...", ScreenMgr::VSP_MASS_PROP_SCREEN );
+    m_ProjectionMenuItem.Init( mgr, m_MenuBar, "Analysis/Projected Area...", ScreenMgr::VSP_PROJECTION_SCREEN );
     m_CFDMeshMenuItem.Init( mgr, m_MenuBar, "Analysis/CFD Mesh...", ScreenMgr::VSP_CFD_MESH_SCREEN );
     // m_WingStructMenuItem.Init( mgr, m_MenuBar, "Analysis/Wing Structure...", ScreenMgr::VSP_FEA_MESH_SCREEN );
     m_DegenGeomMenuItem.Init( mgr, m_MenuBar, "Analysis/DegenGeom...", ScreenMgr::VSP_DEGEN_GEOM_SCREEN );
     m_VSPAEROMenuItem.Init( mgr, m_MenuBar, "Analysis/VSPAERO...", ScreenMgr::VSP_VSPAERO_SCREEN );
+    m_WaveDragMenuItem.Init( mgr, m_MenuBar, "Analysis/Wave Drag...", ScreenMgr::VSP_WAVEDRAG_SCREEN );
+    m_ParasiteDragMenuItem.Init( mgr, m_MenuBar, "Analysis/Parasite Drag...", ScreenMgr::VSP_PARASITE_DRAG_SCREEN );
 
 
     // m_AboutMenuItem.Init( mgr, m_MenuBar, "Help/About...", ScreenMgr:: );
@@ -336,7 +338,7 @@ void MainVSPScreen::ActionCB( void * data )
         string openfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Insert VSP File", "*.vsp3" );
         if ( openfile.compare( "" ) != 0 )
         {
-            VehicleMgr.GetVehicle()->ReadXMLFile( openfile );
+            VehicleMgr.GetVehicle()->ReadXMLFileGeomsOnly( openfile );
         }
     }
     // else if ( data == &m_SetTempDirMenuItem )

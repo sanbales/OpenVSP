@@ -18,7 +18,7 @@
 
 #include <FL/Fl.H>
 
-class WingScreen : public GeomScreen
+class WingScreen : public BlendScreen
 {
 public:
     WingScreen( ScreenMgr* mgr );
@@ -44,14 +44,26 @@ protected:
     StringOutput m_PlanAROutput;
 
     Choice m_RootCapTypeChoice;
+    SliderAdjRangeInput m_RootCapLenSlider;
+    SliderAdjRangeInput m_RootCapOffsetSlider;
+    SliderAdjRangeInput m_RootCapStrengthSlider;
+    ToggleButton m_RootCapSweepFlagButton;
+
     Choice m_TipCapTypeChoice;
+    SliderAdjRangeInput m_TipCapLenSlider;
+    SliderAdjRangeInput m_TipCapOffsetSlider;
+    SliderAdjRangeInput m_TipCapStrengthSlider;
+    ToggleButton m_TipCapSweepFlagButton;
+
     SliderAdjRangeInput m_CapTessSlider;
 
     SliderAdjRangeInput m_IncidenceSlider;
     SliderAdjRangeInput m_IncidenceLocSlider;
 
-    SliderInput m_LEClusterSlider;
-    SliderInput m_TEClusterSlider;
+    SliderAdjRangeInput m_LEClusterSlider;
+    SliderAdjRangeInput m_TEClusterSlider;
+    StringOutput m_SmallPanelWOutput;
+    StringOutput m_MaxGrowthOutput;
 
     // Wing section tab
     GroupLayout m_SectionLayout;
@@ -67,8 +79,8 @@ protected:
     TriggerButton m_InsertSectButton;
 
     SliderInput m_SectUTessSlider;
-    SliderInput m_RootClusterSlider;
-    SliderInput m_TipClusterSlider;
+    SliderAdjRangeInput m_RootClusterSlider;
+    SliderAdjRangeInput m_TipClusterSlider;
 
     WingDriverGroup m_DefaultWingDriverGroup;
     DriverGroupBank m_WingDriverGroupBank;
@@ -111,6 +123,10 @@ protected:
     SliderAdjRangeInput m_SuperWidthSlider;
     SliderAdjRangeInput m_SuperMSlider;
     SliderAdjRangeInput m_SuperNSlider;
+    ToggleButton m_SuperToggleSym;
+    SliderAdjRangeInput m_SuperM_botSlider;
+    SliderAdjRangeInput m_SuperN_botSlider;
+    SliderAdjRangeInput m_SuperMaxWidthLocSlider;
 
     GroupLayout m_CircleGroup;
     SliderAdjRangeInput m_DiameterSlider;
@@ -123,6 +139,9 @@ protected:
     SliderAdjRangeInput m_RRHeightSlider;
     SliderAdjRangeInput m_RRWidthSlider;
     SliderAdjRangeInput m_RRRadiusSlider;
+    ToggleButton m_RRKeyCornerButton;
+    SliderAdjRangeInput m_RRSkewSlider;
+    SliderAdjRangeInput m_RRKeystoneSlider;
 
     GroupLayout m_GenGroup;
     SliderAdjRangeInput m_GenHeightSlider;
@@ -208,6 +227,16 @@ protected:
     CheckButton m_CSTContLERadButton;
     CheckButton m_CSTEqArcLenButton;
 
+    GroupLayout m_VKTGroup;
+    SliderAdjRangeInput m_VKTChordSlider;
+    SliderAdjRangeInput m_VKTEpsilonSlider;
+    SliderAdjRangeInput m_VKTKappaSlider;
+    SliderAdjRangeInput m_VKTTauSlider;
+    CheckButton m_VKTInvertButton;
+
+    TriggerButton m_VKTFitCSTButton;
+    Counter m_VKTDegreeCounter;
+
     // Overall planform tab
     GroupLayout m_ModifyLayout;
 
@@ -218,18 +247,40 @@ protected:
     ToggleButton m_TECloseRELButton;
     ToggleRadioGroup m_TECloseGroup;
 
-    SliderAdjRangeInput m_CloseThickSlider;
-    SliderAdjRangeInput m_CloseThickChordSlider;
+    SliderAdjRange2Input m_CloseTEThickSlider;
 
     Choice m_TETrimChoice;
     ToggleButton m_TETrimABSButton;
     ToggleButton m_TETrimRELButton;
     ToggleRadioGroup m_TETrimGroup;
 
-    SliderAdjRangeInput m_TrimXSlider;
-    SliderAdjRangeInput m_TrimXChordSlider;
-    SliderAdjRangeInput m_TrimThickSlider;
-    SliderAdjRangeInput m_TrimThickChordSlider;
+    SliderAdjRange2Input m_TrimTEXSlider;
+    SliderAdjRange2Input m_TrimTEThickSlider;
+
+    Choice m_TECapChoice;
+    SliderAdjRangeInput m_TECapLengthSlider;
+    SliderAdjRangeInput m_TECapOffsetSlider;
+    SliderAdjRangeInput m_TECapStrengthSlider;
+
+    Choice m_LECloseChoice;
+    ToggleButton m_LECloseABSButton;
+    ToggleButton m_LECloseRELButton;
+    ToggleRadioGroup m_LECloseGroup;
+
+    SliderAdjRange2Input m_CloseLEThickSlider;
+
+    Choice m_LETrimChoice;
+    ToggleButton m_LETrimABSButton;
+    ToggleButton m_LETrimRELButton;
+    ToggleRadioGroup m_LETrimGroup;
+
+    SliderAdjRange2Input m_TrimLEXSlider;
+    SliderAdjRange2Input m_TrimLEThickSlider;
+
+    Choice m_LECapChoice;
+    SliderAdjRangeInput m_LECapLengthSlider;
+    SliderAdjRangeInput m_LECapOffsetSlider;
+    SliderAdjRangeInput m_LECapStrengthSlider;
 
     SliderAdjRangeInput m_AFThetaSlider;
     SliderAdjRangeInput m_AFScaleSlider;

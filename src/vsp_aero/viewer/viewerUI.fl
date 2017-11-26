@@ -7,8 +7,8 @@ class viewerUI {open
   Function {viewerUI()} {open
   } {
     Fl_Window mainWindow {
-      label {VSPAERO Viewer 2.2} open selected
-      private xywh {496 302 1160 710} type Double labelsize 12 align 0 resizable visible
+      label {VSPAERO Viewer 4.2.0} open
+      private xywh {634 394 1160 710} type Double labelsize 12 align 0 resizable visible
     } {
       Fl_Group {} {open
         xywh {0 2 1162 710} box FLAT_BOX labeltype ENGRAVED_LABEL
@@ -28,27 +28,27 @@ class viewerUI {open
           }
         }
         Fl_Group OutputPanel {open
-          xywh {865 7 297 705}
+          xywh {857 7 305 705} labelfont 1
         } {
           Fl_Output MachOutput {
             label {Mach:}
-            xywh {923 7 85 24} box FLAT_BOX color 49 labelfont 1 textfont 1
+            xywh {923 59 225 24} box FLAT_BOX color 49 labelfont 1 textfont 1
           }
           Fl_Output AlphaOutput {
             label {Alpha:}
-            xywh {924 36 85 24} box FLAT_BOX color 49 labelfont 1 textfont 1
+            xywh {924 88 225 24} box FLAT_BOX color 49 labelfont 1 textfont 1
           }
           Fl_Output BetaOutput {
             label {Beta:}
-            xywh {924 64 85 24} box FLAT_BOX color 49 labelfont 1 textfont 1
+            xywh {924 116 225 24} box FLAT_BOX color 49 labelfont 1 textfont 1
           }
           Fl_Group PanelComGeomTags {open
-            tooltip {Comgeom II panel tag list} xywh {865 96 290 609} box PLASTIC_UP_BOX
+            tooltip {Comgeom II panel tag list} xywh {865 291 290 414} box PLASTIC_UP_BOX
           } {
             Fl_Browser PanelComGeomTagsBrowser {
               label {Degen Geom Components}
               callback {glviewer->redraw();}
-              xywh {868 122 286 478} type Multi box PLASTIC_UP_BOX color 49 selection_color 4 labelfont 3 align 1 textfont 5
+              xywh {868 291 286 309} type Multi box PLASTIC_UP_BOX color 49 selection_color 4 labelfont 3 align 1 textfont 5
             }
             Fl_Button PanelComGeomTagsBrowserUnSelectAll {
               label {UnSelect All}
@@ -110,12 +110,59 @@ glviewer->redraw();}
               tooltip {Draw only selected COMGEOM II tags} xywh {872 665 180 25} box PLASTIC_UP_BOX color 4 selection_color 4 labelsize 12
             }
           }
+          Fl_Output CommentOutput {
+            xywh {877 148 265 98} box BORDER_BOX color 49 labelfont 1 textfont 1
+          }
+          Fl_Counter LoadSolutionCase {
+            label {Solution Case}
+            callback {char dum[200];
+
+glviewer->SolutionCaseSliderWasMoved( ((Fl_Value_Input *)o)->value());
+
+glviewer->GetCurrentMachText(dum);
+MachOutput->value(dum);
+
+glviewer->GetCurrentAlphaText(dum);
+AlphaOutput->value(dum);
+
+glviewer->GetCurrentBetaText(dum);
+BetaOutput->value(dum);
+
+glviewer->GetCommentTextString(dum);
+
+CommentOutput->value(dum);
+
+glviewer->redraw();}
+            xywh {871 30 200 21} labelfont 1 align 1 step 1 value 1
+          }
+          Fl_Output NumberOfSolutionCasesText {
+            xywh {1076 30 50 21} box NO_BOX labelfont 1 textfont 1
+          }
         }
       }
       Fl_Menu_Button FileMenu {
         label File open
         tooltip {File menu} xywh {3 3 90 25} box PLASTIC_UP_BOX down_box PLASTIC_UP_BOX selection_color 231 labelfont 1
       } {
+        Submenu SaveAsMenu {
+          label SaveAs open
+          xywh {0 0 70 21}
+        } {
+          MenuItem FileMenuSaveAsTiff {
+            label {Tiff File}
+            callback {const char *val;
+char dum[80];
+sprintf(dum,"");
+val = fl_input("File Name:",dum);
+if ( val != NULL ) {
+
+sprintf(dum,"%s",val);
+glviewer->WriteTiffFile(dum);
+
+}}
+            xywh {15 15 100 20}
+          }
+        }
         MenuItem FileMenuPickQuit {
           label Quit
           callback {int val;
@@ -207,14 +254,20 @@ glviewer->redraw();}
 glviewer->redraw();}
           xywh {15 15 100 20} type Radio divider
         }
+        MenuItem ADBMenuPickWireFrame {
+          label Triangulation
+          callback {glviewer->DrawWireFrameWasPicked();
+glviewer->redraw();}
+          xywh {55 55 100 20} type Toggle
+        }
         MenuItem ADBMenuPickCoarseMesh {
-          label Mesh
+          label {Computational Mesh}
           callback {glviewer->DrawCoarseMeshWasPicked();
 glviewer->redraw();}
           xywh {45 45 100 20} type Toggle
         }
         MenuItem ADBMenuPickWakes {
-          label Wakes
+          label {Trailing Wakes}
           callback {glviewer->DrawWakesWasPicked();
 glviewer->redraw();}
           xywh {25 25 100 20} type Toggle
@@ -224,6 +277,12 @@ glviewer->redraw();}
           callback {glviewer->DrawRotorsWasPicked();
 glviewer->redraw();}
           xywh {35 35 100 20} type Toggle
+        }
+        MenuItem ADBMenuPickControlSurfaces {
+          label {Control Surfaces}
+          callback {glviewer->DrawControlSurfacesWasPicked();
+glviewer->redraw();}
+          xywh {45 45 100 20} type Toggle
         }
       }
       Fl_Menu_Button LegendMenu {
@@ -262,7 +321,7 @@ glviewer->redraw();}
         }
       }
       Fl_Menu_Button OptionsMenu {
-        label Options open selected
+        label Options open
         tooltip {Options menu} xywh {381 3 90 25} box PLASTIC_UP_BOX down_box PLASTIC_UP_BOX selection_color 231 labelfont 1
       } {
         MenuItem OptionsMenuSetContourLevels {
@@ -294,6 +353,43 @@ glviewer->redraw();}
           xywh {50 50 100 20} type Toggle divider
           code0 {\#include "ContourLevel.h"}
         }
+        MenuItem OptionsMenuDrawControlSurfacesDeflected {
+          label {Draw Control Surfaces Deflected}
+          callback {glviewer->DrawControlSurfacesDeflectedWasPicked();
+glviewer->redraw();}
+          xywh {60 60 100 20} type Toggle divider
+          code0 {\#include "ContourLevel.h"}
+        }
+        MenuItem DrawReflectedGeometry {
+          label {Draw Reflected Geometry}
+          callback {glviewer->DrawReflectedGeometryWasPicked();
+glviewer->redraw();}
+          xywh {70 70 100 20} type Toggle divider
+          code0 {\#include "ContourLevel.h"}
+        }
+        Submenu {} {
+          label {Draw Axis Planes} open
+          xywh {0 0 70 21}
+        } {
+          MenuItem DrawXPlane {
+            label {Draw X-Plane}
+            callback {glviewer->DrawXPlaneWasPicked();
+glviewer->redraw();} selected
+            xywh {0 0 36 21} type Radio
+          }
+          MenuItem DrawYPlane {
+            label {Draw Y-Plane}
+            callback {glviewer->DrawYPlaneWasPicked();
+glviewer->redraw();}
+            xywh {10 10 36 21} type Radio
+          }
+          MenuItem DrawZPlane {
+            label {Draw Z-Plane}
+            callback {glviewer->DrawZPlaneWasPicked();
+glviewer->redraw();}
+            xywh {20 20 36 21} type Radio
+          }
+        }
       }
       Fl_Button KeyboardControlInfoButton {
         label {Keyboard Controls}
@@ -306,18 +402,7 @@ glviewer->redraw();}
   Function {show(int argc, char **argv)} {
     callback {exit(1);} open
   } {
-    code {mainWindow->show(argc, argv);
-glviewer->StartScript();} {
-      callback {glviewer->DrawHrWasPicked();
-glviewer->redraw();}
-    }
-  }
-  Function {RunScript(int argc, char **argv, char* ScriptName)} {open
-  } {
-    code {mainWindow->show(argc, argv);
-printf("Ok... now run the script... \\n");
-
-glviewer->RunScript(ScriptName, this);} {
+    code {mainWindow->show(argc, argv);} {
       callback {glviewer->DrawHrWasPicked();
 glviewer->redraw();}
     }
@@ -335,6 +420,22 @@ glviewer->GetCurrentAlphaText(dum);
 AlphaOutput->value(dum);
 
 glviewer->GetCurrentBetaText(dum);
-BetaOutput->value(dum);} {}
+BetaOutput->value(dum);
+
+int UpperBound = glviewer->GetNumberOfADBCases();
+
+LoadSolutionCase->bounds(1,UpperBound);
+int BigStep = UpperBound/10;
+if (BigStep < 1 ) BigStep = 1;
+
+LoadSolutionCase->lstep((double)BigStep);
+
+sprintf(dum," of %d",UpperBound);
+
+NumberOfSolutionCasesText->value(dum);
+
+glviewer->GetCommentTextString(dum);
+
+CommentOutput->value(dum);} {}
   }
 } 

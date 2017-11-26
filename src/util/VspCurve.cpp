@@ -10,17 +10,17 @@
 
 
 #include <stdio.h>
-#include <math.h>
-#include <assert.h>
-#include <float.h>
+#include <cmath>
 
 #include "VspCurve.h"
+#include "APIDefines.h"
+
 
 #include "eli/geom/curve/length.hpp"
 #include "eli/geom/curve/piecewise_creator.hpp"
-#include "eli/geom/intersect/minimum_distance_curve.hpp"
 #include "eli/geom/intersect/specified_distance_curve.hpp"
 #include "eli/geom/intersect/specified_thickness_curve.hpp"
+#include "eli/geom/intersect/minimum_dimension_curve.hpp"
 
 typedef piecewise_curve_type::index_type curve_index_type;
 typedef piecewise_curve_type::point_type curve_point_type;
@@ -57,6 +57,43 @@ void VspCurve::Copy( VspCurve & input_crv )
 void VspCurve::Split( double u )
 {
     m_Curve.split( u );
+}
+
+// Shift curve parameter to start curve at u
+// Assumes u is between umin, umax
+void VspCurve::Spin( double u )
+{
+    double umin, umax;
+    umax = m_Curve.get_parameter_max();
+    umin = m_Curve.get_parameter_min();
+
+    if ( u <= umin || u >= umax )
+    {
+        return;
+    }
+
+    piecewise_curve_type c1, c2;
+    m_Curve.split( c1, c2, u );
+
+    c1.set_t0( umin + umax - u );  // This is likely unneeded
+    c2.set_t0( umin );
+
+    c2.push_back( c1 );
+    c2.set_tmax( umax ); // Should be redundant, but set in case of floating point error accumulation.
+    m_Curve = c2;
+}
+
+// Shift curve parameter to start curve at u
+// Negative u will shift the other way.
+void VspCurve::Spin01( double u )
+{
+    // Force u positive by wrapping around.
+    if ( u < 0 )
+    {
+        u = 1.0 + u;
+    }
+
+    Spin( u * m_Curve.get_tmax()  );
 }
 
 //==== Append Curve To Existing Curve ====//
@@ -216,6 +253,38 @@ void VspCurve::RoundJoint( double rad, int i )
 void VspCurve::RoundAllJoints( double rad )
 {
     m_Curve.round( rad );
+}
+
+void VspCurve::Modify( int type, bool le, double len, double off, double str )
+{
+    int elitype = 0;
+
+    double tmid = m_Curve.get_t0();
+
+    if ( le )
+    {
+        tmid = ( m_Curve.get_t0() + m_Curve.get_tmax() ) * 0.5;
+    }
+
+    switch ( type )
+    {
+    case vsp::ROUND_END_CAP:
+        elitype = piecewise_curve_type::ROUND;
+        break;
+    case vsp::EDGE_END_CAP:
+        elitype = piecewise_curve_type::EDGE;
+        break;
+    case vsp::SHARP_END_CAP:
+        elitype = piecewise_curve_type::SHARP;
+        break;
+    case vsp::FLAT_END_CAP:
+    default:
+        // Do nothing, already flat.
+        return; //elitype = piecewise_curve_type::FLAT;
+        break;
+    }
+
+    m_Curve.modify( elitype, tmid, TMAGIC, len, off, str );
 }
 
 //===== Interpolate Creates piecewise linear curves ===//
@@ -435,16 +504,63 @@ void VspCurve::InterpolateCSpline( vector< vec3d > & input_pnt_vec, const vec3d 
     }
 }
 
-void VspCurve::ToBinaryCubic()
+void VspCurve::ToBinaryCubic( bool wingtype )
 {
     piecewise_binary_cubic_creator pbcc;
 
-    // Setup copies base curve into creator.
-    // tolerance, min adapt levels, max adapt levels
-    pbcc.setup( m_Curve, 1e-6, 2, 15 );
+    double tmin, tmax, tmid;
+    tmin = m_Curve.get_parameter_min();
+    tmax = m_Curve.get_parameter_max();
+    tmid = ( tmin + tmax ) / 2.0;
 
-    // Create makes new curve in m_Curve
-    pbcc.create( m_Curve );
+    if ( wingtype )
+    {
+        piecewise_curve_type crv, telow, teup, le, low, up, rest;
+
+        m_Curve.split( telow, crv, tmin + TMAGIC );
+        crv.split( low, rest, tmid - TMAGIC );
+        crv = rest;
+        crv.split( le, rest, tmid + TMAGIC );
+        crv = rest;
+        crv.split( up, teup, tmax - TMAGIC );
+
+        // Setup copies base curve into creator.
+        // tolerance, min adapt levels, max adapt levels
+        pbcc.setup( low, 1e-6, 0.01, 2, 15 );
+        // Create makes new curve
+        pbcc.corner_create( low );
+
+        pbcc.setup( up, 1e-6, 0.01, 2, 15 );
+        pbcc.corner_create( up );
+
+        m_Curve = telow;
+        m_Curve.push_back( low );
+        m_Curve.push_back( le );
+        m_Curve.push_back( up );
+        m_Curve.push_back( teup );
+
+        m_Curve.set_tmax( tmax );
+    }
+    else
+    {
+        piecewise_curve_type low, up;
+
+        m_Curve.split( low, up, tmid );
+
+        // Setup copies base curve into creator.
+        // tolerance, min adapt levels, max adapt levels
+        pbcc.setup( low, 1e-6, 0.01, 2, 15 );
+        // Create makes new curve
+        pbcc.corner_create( m_Curve );
+
+        pbcc.setup( up, 1e-6, 0.01, 2, 15 );
+        pbcc.corner_create( up );
+
+        m_Curve.push_back( up );
+
+        m_Curve.set_tmax( tmax );
+    }
+
 }
 
 void VspCurve::SetCubicControlPoints( const vector< vec3d > & cntrl_pts, bool closed_flag )
@@ -666,6 +782,28 @@ double VspCurve::FindDistant( double &u, const vec3d &pt, const double &d, const
     return dist;
 }
 
+double VspCurve::FindDistant( double &u, const vec3d &pt, const double &d ) const
+{
+    double dist;
+    curve_point_type p;
+    p << pt.x(), pt.y(), pt.z();
+
+    dist = eli::geom::intersect::specified_distance( u, m_Curve, p, d );
+
+    return dist;
+}
+
+double VspCurve::FindDistant( double &u, const vec3d &pt, const double &d, const double &umin, const double &umax ) const
+{
+    double dist;
+    curve_point_type p;
+    p << pt.x(), pt.y(), pt.z();
+
+    dist = eli::geom::intersect::specified_distance( u, m_Curve, p, d, umin, umax );
+
+    return dist;
+}
+
 double VspCurve::FindThickness( double &u1, double &u2, const vec3d &pt, const double &thick, const double &u10, const double &u20 ) const
 {
     double dist;
@@ -721,8 +859,22 @@ double VspCurve::FindNearest01( double &u, const vec3d &pt, const double &u0 ) c
     return dist;
 }
 
+double VspCurve::FindMinimumDimension( double &u, const int &idim, const double &u0 ) const
+{
+    double r = eli::geom::intersect::minimum_dimension( u, m_Curve, idim, u0 );
+
+    return r;
+}
+
+double VspCurve::FindMinimumDimension( double &u, const int &idim ) const
+{
+    double r = eli::geom::intersect::minimum_dimension( u, m_Curve, idim );
+
+    return r;
+}
+
 //===== Compute Point  =====//
-vec3d VspCurve::CompPnt( double u )
+vec3d VspCurve::CompPnt( double u ) const
 {
     vec3d rtn;
     curve_point_type v( m_Curve.f( u ) );
@@ -732,7 +884,7 @@ vec3d VspCurve::CompPnt( double u )
 }
 
 //===== Compute Tangent  =====//
-vec3d VspCurve::CompTan( double u )
+vec3d VspCurve::CompTan( double u ) const
 {
     vec3d rtn;
     curve_point_type v( m_Curve.fp( u ) );
@@ -741,39 +893,163 @@ vec3d VspCurve::CompTan( double u )
     return rtn;
 }
 
+vec3d VspCurve::CompTan( double u, int sideflag ) const
+{
+    curve_point_type v;
+
+    if ( sideflag == BEFORE )
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u > m_Curve.get_parameter_min() )
+        {
+            m_Curve.split( c1, c2, u );
+            v = c1.fp( u );
+        }
+        else
+        {
+            v = m_Curve.fp( u );
+        }
+    }
+    else
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u < m_Curve.get_parameter_max() )
+        {
+            m_Curve.split( c1, c2, u );
+            v = c2.fp( u );
+        }
+        else
+        {
+            v = m_Curve.fp( u );
+        }
+    }
+
+    vec3d rtn;
+    rtn.set_xyz( v.x(), v.y(), v.z() );
+    return rtn;
+}
+
+vec3d VspCurve::CompNorm( double u) const
+{
+    vec3d rtn;
+    curve_point_type v( m_Curve.fpp( u ) );
+
+    rtn.set_xyz( v.x(), v.y(), v.z() );
+    return rtn;
+}
+
+vec3d VspCurve::CompNorm( double u, int sideflag ) const
+{
+    curve_point_type v;
+
+    if ( sideflag == BEFORE )
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u > m_Curve.get_parameter_min() )
+        {
+            m_Curve.split( c1, c2, u );
+            v = c1.fpp( u );
+        }
+        else
+        {
+            v = m_Curve.fpp( u );
+        }
+    }
+    else
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u < m_Curve.get_parameter_max() )
+        {
+            m_Curve.split( c1, c2, u );
+            v = c2.fpp( u );
+        }
+        else
+        {
+            v = m_Curve.fpp( u );
+        }
+    }
+
+    vec3d rtn;
+    rtn.set_xyz( v.x(), v.y(), v.z() );
+    return rtn;
+}
+
+double VspCurve::CompCurve( double u ) const
+{
+    curve_point_type fp( m_Curve.fp( u ) );
+    curve_point_type fpp( m_Curve.fpp( u ) );
+
+    double fpn = fp.norm();
+    double denom = fpn * fpn * fpn;
+    return ( fp.cross( fpp ) ).norm() / denom;
+}
+
+double VspCurve::CompCurve( double u, int sideflag ) const
+{
+    curve_point_type fp, fpp;
+
+    if ( sideflag == BEFORE )
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u > m_Curve.get_parameter_min() )
+        {
+            m_Curve.split( c1, c2, u );
+            fp = c1.fp( u );
+            fpp = c1.fpp( u );
+        }
+        else
+        {
+            fp = m_Curve.fp( u );
+            fpp = m_Curve.fpp( u );
+        }
+    }
+    else
+    {
+        piecewise_curve_type c1, c2;
+
+        if ( u < m_Curve.get_parameter_max() )
+        {
+            m_Curve.split( c1, c2, u );
+            fp = c2.fp( u );
+            fpp = c2.fpp( u );
+        }
+        else
+        {
+            fp = m_Curve.fp( u );
+            fpp = m_Curve.fpp( u );
+        }
+    }
+
+    double fpn = fp.norm();
+    double denom = fpn * fpn * fpn;
+    return ( fp.cross( fpp ) ).norm() / denom;
+}
+
 //===== Compute Point U 0.0 -> 1.0 =====//
-vec3d VspCurve::CompPnt01( double u )
+vec3d VspCurve::CompPnt01( double u ) const
 {
     return CompPnt( u * m_Curve.get_tmax() );
 }
 
 
 //===== Compute Tan U 0.0 -> 1.0 =====//
-vec3d VspCurve::CompTan01( double u )
+vec3d VspCurve::CompTan01( double u ) const
 {
     return CompTan( u * m_Curve.get_tmax() );
 }
 
 //===== Compute Length =====//
-double VspCurve::CompLength( double tol )
+double VspCurve::CompLength( double tol ) const
 {
-    double len;
+    double len = 0.0;
     eli::geom::curve::length( len, m_Curve, tol );
 
     return len;
-}
-
-//===== Tesselate =====//
-void VspCurve::Tesselate( int num_pnts_u, vector< vec3d > & output )
-{
-    vector< double > uout;
-    Tesselate( num_pnts_u, output, uout );
-}
-
-//===== Tesselate =====//
-void VspCurve::Tesselate( int num_pnts_u, vector< vec3d > & output, vector< double > &uout )
-{
-    Tesselate( num_pnts_u, m_Curve.get_parameter_min(), m_Curve.get_parameter_max(), output, uout );
 }
 
 //===== Tesselate =====//
@@ -791,29 +1067,6 @@ void VspCurve::TesselateNoCorner( int num_pnts_u, double umin, double umax, vect
         double u = umin + delta * i;
         uout[i] = u;
     }
-
-    Tesselate( uout, output );
-}
-
-//===== Tesselate =====//
-void VspCurve::Tesselate( int num_pnts_u, double umin, double umax, vector< vec3d > & output, vector< double > &uout )
-{
-    curve_index_type i;
-    curve_point_type p;
-    double delta;
-
-    delta = ( umax - umin ) / ( num_pnts_u - 1 );
-
-    uout.resize( num_pnts_u + 2 );
-    uout[0] = umin;
-    uout[1] = umin + TMAGIC;
-    for ( i = 2; i < num_pnts_u + 1; ++i )
-    {
-        double u = umin + delta * ( i - 1 );
-        uout[i] = u;
-    }
-    uout[ num_pnts_u ] = umax - TMAGIC;
-    uout[ num_pnts_u + 1 ] = umax;
 
     Tesselate( uout, output );
 }
@@ -857,7 +1110,7 @@ void VspCurve::TessAdapt( double umin, double umax, const vec3d & pmin, const ve
 
     double d = dist_pnt_2_line( pmin, pmax, pmid ) / dist( pmin, pmax );
 
-    if ( ( d > tol && Nlimit > 0 ) || Nadapt < 2 )
+    if ( ( d > tol && Nlimit > 0 ) || Nadapt < 3 )
     {
         TessAdapt( umin, umid, pmin, pmid, pnts, tol, Nlimit - 1, Nadapt + 1 );
         TessAdapt( umid, umax, pmid, pmax, pnts, tol, Nlimit - 1, Nadapt + 1 );
@@ -956,6 +1209,26 @@ void VspCurve::Transform( Matrix4d & mat )
     m_Curve.translate( trans );
 }
 
+void VspCurve::Scale( double s )
+{
+    m_Curve.scale( s );
+}
+
+void VspCurve::ScaleX( double s )
+{
+    m_Curve.scale_x( s );
+}
+
+void VspCurve::ScaleY( double s )
+{
+    m_Curve.scale_y( s );
+}
+
+void VspCurve::ScaleZ( double s )
+{
+    m_Curve.scale_z( s );
+}
+
 void VspCurve::ReflectXY()
 {
     m_Curve.reflect_xy();
@@ -1033,7 +1306,7 @@ bool VspCurve::IsEqual( const VspCurve & crv )
 
 void VspCurve::GetBoundingBox( BndBox &bb ) const
 {
-	curve_bounding_box_type bbx;
+    curve_bounding_box_type bbx;
     vec3d v3min, v3max;
 
     m_Curve.get_bounding_box( bbx );
@@ -1042,4 +1315,82 @@ void VspCurve::GetBoundingBox( BndBox &bb ) const
     bb.Reset();
     bb.Update( v3min );
     bb.Update( v3max );
+}
+
+// This routine estimates the thickness of an airfoil from the curves directly.
+// It constructs the equiparameteric distance squared curve.  It then maximizes that
+// curve.
+double VspCurve::CalculateThick( double &loc ) const
+{
+    piecewise_curve_type crv , c1, c2, c3, c4;
+    crv = m_Curve;
+
+    double tmid = ( crv.get_parameter_max() + crv.get_parameter_min() ) / 2.0;
+
+    crv.split( c1, c2, tmid );  // Split at LE
+    c2.reverse();
+    c2.set_t0( c1.get_t0() );
+
+    vector < double > pmap;
+    c1.get_pmap( pmap );
+
+    vector < double > pmap2;
+    c2.get_pmap( pmap2 );
+
+    pmap.insert( pmap.end(), pmap2.begin(), pmap2.end() );
+    std::sort( pmap.begin(), pmap.end() );
+    auto pmit = std::unique( pmap.begin(), pmap.end() );
+    pmap.erase( pmit, pmap.end() );
+
+    for( int i = 0; i < pmap.size(); i++ )
+    {
+        c1.split( pmap[i] );
+        c2.split( pmap[i] );
+    }
+
+    c1.scale( -1.0 );
+    c3.sum( c1, c2 );
+
+    c4.square( c3 );
+
+    typedef piecewise_curve_type::onedpiecewisecurve onedpwc;
+    onedpwc sumsq;
+
+    typedef onedpwc::bounding_box_type onedbox;
+    onedbox box;
+
+    typedef onedpwc::point_type onedpt;
+    onedpt p;
+
+    sumsq = c4.sumcompcurve();
+
+    // Negate to allow minimization instead of maximization.
+    sumsq.scale( -1.0 );
+
+    double utmax;
+    double tmax = sqrt( -1.0 * eli::geom::intersect::minimum_dimension( utmax, sumsq, 0 ) );
+
+    loc = ( c2.f( utmax ).x() - c1.f( utmax ).x() ) * 0.5;
+
+    return tmax;
+}
+
+
+// Find the angle between two points on a curve.
+// First point: u1, considering curve dir1 = BEFORE or AFTER the point
+// Second point: u2, considering curve dir2 = BEFORE or AFTER the point
+// flipflag determines whether the second curve's sign is changed before calculating angle.
+double VspCurve::Angle( const double & u1, const int &dir1, const double & u2, const int &dir2, const bool & flipflag ) const
+{
+    vec3d tan1, tan2;
+
+    tan1 = CompTan( u1, dir1 );
+    tan2 = CompTan( u2, dir2 );
+
+    if ( flipflag )
+    {
+        tan2 = tan2 * -1.0;
+    }
+
+    return angle( tan1, tan2 );
 }

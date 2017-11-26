@@ -80,10 +80,10 @@ public:
     CScriptArray* GetProxyDoubleArray();
 
     //==== Common Types =====//
-    asIObjectType* m_IntArrayType;
-    asIObjectType* m_DoubleArrayType;
-    asIObjectType* m_Vec3dArrayType;
-    asIObjectType* m_StringArrayType;
+    asITypeInfo* m_IntArrayType;
+    asITypeInfo* m_DoubleArrayType;
+    asITypeInfo* m_Vec3dArrayType;
+    asITypeInfo* m_StringArrayType;
 
     //==== Utility ====//
     void Print( const string & data, bool new_line );
@@ -135,6 +135,14 @@ private:
     CScriptArray* GetAirfoilLowerPnts( const string& xsec_id );
     CScriptArray* GetGeomSetAtIndex( int index );
     CScriptArray* GetGeomSet( const string & name );
+
+    CScriptArray* ListAnalysis();
+    CScriptArray* GetAnalysisInputNames( const string & analysis );
+    CScriptArray* GetIntAnalysisInput( const string & analysis, const string & name, int index );
+    CScriptArray* GetDoubleAnalysisInput( const string & analysis, const string & name, int index );
+    CScriptArray* GetStringAnalysisInput( const string & analysis, const string & name, int index );
+    CScriptArray* GetVec3dAnalysisInput( const string & analysis, const string & name, int index );
+
     CScriptArray* GetAllResultsNames();
     CScriptArray* GetAllDataNames( const string & results_id );
     CScriptArray* GetIntResults( const string & id, const string & name, int index );
@@ -148,6 +156,8 @@ private:
     CScriptArray* GetUpperCSTCoefs( const string & xsec_id );
     CScriptArray* GetLowerCSTCoefs( const string & xsec_id );
 
+    void DeleteGeomVec( CScriptArray* del_arr );
+
     void SetXSecPnts( const string& xsec_id, CScriptArray* pnt_arr );
     void SetAirfoilPnts( const string& xsec_id, CScriptArray* up_pnt_arr, CScriptArray* low_pnt_arr );
     void SetVec3dArray( CScriptArray* arr );
@@ -155,6 +165,38 @@ private:
     void SetUpperCST( const string& xsec_id, int deg, CScriptArray* coefs );
     void SetLowerCST( const string& xsec_id, int deg, CScriptArray* coefs );
 
+    void SetIntAnalysisInput( const string& analysis, const string & name, CScriptArray* indata, int index );
+    void SetDoubleAnalysisInput( const string& analysis, const string & name, CScriptArray* indata, int index );
+    void SetStringAnalysisInput( const string& analysis, const string & name, CScriptArray* indata, int index );
+    void SetVec3dAnalysisInput( const string& analysis, const string & name, CScriptArray* indata, int index );
+
+    // ==== Variable Preset Functions ====//
+    CScriptArray* GetVarPresetGroupNames();
+    CScriptArray* GetVarPresetSettingNamesWName( string group_name );
+    CScriptArray* GetVarPresetSettingNamesWIndex( int group_index );
+    CScriptArray* GetVarPresetParmVals();
+    CScriptArray* GetVarPresetParmValsWNames( string group_name, string setting_name );
+    CScriptArray* GetVarPresetParmIDs();
+    CScriptArray* GetVarPresetParmIDsWName( string group_name );
+    void AddVarPresetGroup( const string &group_name );
+    void AddVarPresetSetting( const string &setting_name );
+    void AddVarPresetParm( const string &parm_ID );
+    void AddVarPresetParm( const string &parm_ID, string group_name );
+    void EditVarPresetParm( const string &parm_ID, double parm_val );
+    void EditVarPresetParm( const string &parm_ID, double parm_val, string group_name, string setting_name );
+    void DeleteVarPresetParm( const string &parm_ID );
+    void DeleteVarPresetParm( const string &parm_ID, string group_name );
+    void SwitchVarPreset( string group_name, string setting_name );
+    void DeleteVarPresetSet( string group_name, string setting_name );
+
+    // ==== PCurve Functions ====//
+    void SetPCurve( const string& geom_id, const int & pcurveid, CScriptArray* tvec, CScriptArray* valvec, const int & newtype );
+    CScriptArray* PCurveGetTVec( const std::string & geom_id, const int & pcurveid );
+    CScriptArray* PCurveGetValVec( const std::string & geom_id, const int & pcurveid );
+
+    // ==== Parasite Drag Tool Functions ====//
+    void AddExcrescence(const std::string & excresName, int excresType, double excresVal);
+    void DeleteExcrescence(int index);
 
 };
 

@@ -11,16 +11,14 @@
 #include "ScreenMgr.h"
 #include "ParmMgr.h"
 #include "SubSurfaceMgr.h"
-#include "SubSurface.h"
-#include "APIDefines.h"
-#include "MaterialMgr.h"
 #include "GraphicEngine.h"
 #include "Display.h"
 #include "Viewport.h"
 #include "Camera.h"
-#include "ScreenMgr.h"
 #include "MaterialEditScreen.h"
+
 #include "VSPWindow.h"
+#include "WingGeom.h"
 
 using namespace vsp;
 
@@ -126,11 +124,18 @@ void BasicScreen::SetTitle( const string& title )
 //=====================================================================//
 
 //==== Constructor ====//
-TabScreen::TabScreen( ScreenMgr* mgr, int w, int h, const string & title, int baseymargin ) :
+TabScreen::TabScreen( ScreenMgr* mgr, int w, int h, const string & title, int baseymargin, int basexmargin ) :
     BasicScreen( mgr, w, h, title )
 {
+    int topshift = 0;
     //==== Menu Tabs ====//
-    m_MenuTabs = new Fl_Tabs( 0, 25, w, h - 25 - baseymargin );
+    if ( baseymargin < 0 )
+    {
+        baseymargin = -baseymargin;
+        topshift = baseymargin;
+    }
+
+    m_MenuTabs = new Fl_Tabs( 0, 25 + topshift, w - basexmargin, h - 25 - baseymargin );
     m_MenuTabs->labelcolor( FL_BLUE );
 }
 
@@ -376,38 +381,41 @@ GeomScreen::GeomScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
     m_XFormLayout.AddYGap();
 
     m_XFormLayout.AddDividerBox( "Symmetry" );
-    m_XFormLayout.SetFitWidthFlag( true );
-    m_XFormLayout.SetSameLineFlag( true );
 
-    m_XFormLayout.SetChoiceButtonWidth( 50 );
-    m_XFormLayout.SetButtonWidth( 60 );
+    m_XFormLayout.AddSubGroupLayout( m_SymmLayout, m_XFormLayout.GetW(), 4 * m_SymmLayout.GetStdHeight() + 3 * m_SymmLayout.GetGapHeight() );
 
-    m_XFormLayout.AddChoice( m_SymAncestorChoice, "About:", m_XFormLayout.GetButtonWidth() * 2 );
-    m_XFormLayout.SetFitWidthFlag( false );
-    m_XFormLayout.AddButton( m_SymAncestorOriginToggle, "Origin" );
-    m_XFormLayout.AddButton( m_SymAncestorObjectToggle, "Object" );
-    m_XFormLayout.ForceNewLine();
-    m_XFormLayout.AddYGap();
+    m_SymmLayout.SetFitWidthFlag( true );
+    m_SymmLayout.SetSameLineFlag( true );
+
+    m_SymmLayout.SetChoiceButtonWidth( 50 );
+    m_SymmLayout.SetButtonWidth( 60 );
+
+    m_SymmLayout.AddChoice( m_SymAncestorChoice, "About:", m_SymmLayout.GetButtonWidth() * 2 );
+    m_SymmLayout.SetFitWidthFlag( false );
+    m_SymmLayout.AddButton( m_SymAncestorOriginToggle, "Attach" );
+    m_SymmLayout.AddButton( m_SymAncestorObjectToggle, "Object" );
+    m_SymmLayout.ForceNewLine();
+    m_SymmLayout.AddYGap();
 
     m_SymAncestorOriginObjectToggle.Init( this );
     m_SymAncestorOriginObjectToggle.AddButton( m_SymAncestorObjectToggle.GetFlButton() );
     m_SymAncestorOriginObjectToggle.AddButton( m_SymAncestorOriginToggle.GetFlButton() );
 
-    m_XFormLayout.AddLabel( "Planar:", 74 );
-    m_XFormLayout.SetButtonWidth( m_XFormLayout.GetRemainX() / 3 );
-    m_XFormLayout.AddButton( m_XYSymToggle, "XY", vsp::SYM_XY );
-    m_XFormLayout.AddButton( m_XZSymToggle, "XZ", vsp::SYM_XZ );
-    m_XFormLayout.AddButton( m_YZSymToggle, "YZ", vsp::SYM_YZ );
-    m_XFormLayout.ForceNewLine();
-    m_XFormLayout.AddYGap();
+    m_SymmLayout.AddLabel( "Planar:", 74 );
+    m_SymmLayout.SetButtonWidth( m_SymmLayout.GetRemainX() / 3 );
+    m_SymmLayout.AddButton( m_XYSymToggle, "XY", vsp::SYM_XY );
+    m_SymmLayout.AddButton( m_XZSymToggle, "XZ", vsp::SYM_XZ );
+    m_SymmLayout.AddButton( m_YZSymToggle, "YZ", vsp::SYM_YZ );
+    m_SymmLayout.ForceNewLine();
+    m_SymmLayout.AddYGap();
 
-    m_XFormLayout.AddLabel( "Axial:", 74 );
-    m_XFormLayout.SetButtonWidth( m_XFormLayout.GetRemainX() / 4 );
-    m_XFormLayout.AddButton( m_AxialNoneToggle, "None" );
-    m_XFormLayout.AddButton( m_AxialXToggle, "X" );
-    m_XFormLayout.AddButton( m_AxialYToggle, "Y" );
-    m_XFormLayout.AddButton( m_AxialZToggle, "Z" );
-    m_XFormLayout.ForceNewLine();
+    m_SymmLayout.AddLabel( "Axial:", 74 );
+    m_SymmLayout.SetButtonWidth( m_SymmLayout.GetRemainX() / 4 );
+    m_SymmLayout.AddButton( m_AxialNoneToggle, "None" );
+    m_SymmLayout.AddButton( m_AxialXToggle, "X" );
+    m_SymmLayout.AddButton( m_AxialYToggle, "Y" );
+    m_SymmLayout.AddButton( m_AxialZToggle, "Z" );
+    m_SymmLayout.ForceNewLine();
 
     m_AxialToggleGroup.Init( this );
     m_AxialToggleGroup.AddButton( m_AxialNoneToggle.GetFlButton() );
@@ -423,12 +431,19 @@ GeomScreen::GeomScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
     axial_val_map.push_back( vsp::SYM_ROT_Z );
     m_AxialToggleGroup.SetValMapVec( axial_val_map );
 
+    m_SymmLayout.InitWidthHeightVals();
+    m_SymmLayout.SetFitWidthFlag( true );
+    m_SymmLayout.SetSameLineFlag( false );
+
+    m_SymmLayout.AddSlider( m_AxialNSlider, "N", 100, " %5.0f" );
+
+    m_SymmLayout.AddYGap();
+
+    m_XFormLayout.AddY( m_SymmLayout.GetH() );
+
     m_XFormLayout.InitWidthHeightVals();
     m_XFormLayout.SetFitWidthFlag( true );
     m_XFormLayout.SetSameLineFlag( false );
-
-    m_XFormLayout.AddSlider( m_AxialNSlider, "N", 100, " %5.0f" );
-    m_XFormLayout.AddYGap();
 
     m_XFormLayout.AddDividerBox( "Scale Factor" );
     m_XFormLayout.SetFitWidthFlag( false );
@@ -448,39 +463,41 @@ GeomScreen::GeomScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
     m_XFormLayout.SetSameLineFlag( false );
     m_XFormLayout.AddDividerBox( "Attach To Parent" );
 
-    m_XFormLayout.SetFitWidthFlag( false );
-    m_XFormLayout.SetSameLineFlag( true );
+    m_XFormLayout.AddSubGroupLayout( m_AttachLayout, m_XFormLayout.GetW(), 4 * m_AttachLayout.GetStdHeight() + 3 * m_AttachLayout.GetGapHeight() );
 
-    m_XFormLayout.AddLabel( "Translate:", 74 );
-    m_XFormLayout.SetButtonWidth( ( m_XFormLayout.GetRemainX() ) / 3 );
-    m_XFormLayout.AddButton( m_TransNoneButton, "None" );
-    m_XFormLayout.AddButton( m_TransCompButton, "Comp" );
-    m_XFormLayout.AddButton( m_TransUVButton, "UW" );
-    m_XFormLayout.ForceNewLine();
-    m_XFormLayout.AddYGap();
+    m_AttachLayout.SetFitWidthFlag( false );
+    m_AttachLayout.SetSameLineFlag( true );
+
+    m_AttachLayout.AddLabel( "Translate:", 74 );
+    m_AttachLayout.SetButtonWidth( ( m_AttachLayout.GetRemainX() ) / 3 );
+    m_AttachLayout.AddButton( m_TransNoneButton, "None" );
+    m_AttachLayout.AddButton( m_TransCompButton, "Comp" );
+    m_AttachLayout.AddButton( m_TransUVButton, "UW" );
+    m_AttachLayout.ForceNewLine();
+    m_AttachLayout.AddYGap();
 
     m_TransToggleGroup.Init( this );
     m_TransToggleGroup.AddButton( m_TransNoneButton.GetFlButton() );
     m_TransToggleGroup.AddButton( m_TransCompButton.GetFlButton() );
     m_TransToggleGroup.AddButton( m_TransUVButton.GetFlButton() );
 
-    m_XFormLayout.AddLabel( "Rotate:", 74 );
-    m_XFormLayout.AddButton( m_RotNoneButton, "None" );
-    m_XFormLayout.AddButton( m_RotCompButton, "Comp" );
-    m_XFormLayout.AddButton( m_RotUVButton, "UW" );
-    m_XFormLayout.ForceNewLine();
-    m_XFormLayout.AddYGap();
+    m_AttachLayout.AddLabel( "Rotate:", 74 );
+    m_AttachLayout.AddButton( m_RotNoneButton, "None" );
+    m_AttachLayout.AddButton( m_RotCompButton, "Comp" );
+    m_AttachLayout.AddButton( m_RotUVButton, "UW" );
+    m_AttachLayout.ForceNewLine();
+    m_AttachLayout.AddYGap();
 
     m_RotToggleGroup.Init( this );
     m_RotToggleGroup.AddButton( m_RotNoneButton.GetFlButton() );
     m_RotToggleGroup.AddButton( m_RotCompButton.GetFlButton() );
     m_RotToggleGroup.AddButton( m_RotUVButton.GetFlButton() );
 
-    m_XFormLayout.SetFitWidthFlag( true );
-    m_XFormLayout.SetSameLineFlag( false );
+    m_AttachLayout.SetFitWidthFlag( true );
+    m_AttachLayout.SetSameLineFlag( false );
 
-    m_XFormLayout.AddSlider( m_AttachUSlider, "U", 1, " %5.4f" );
-    m_XFormLayout.AddSlider( m_AttachVSlider, "W", 1, " %5.4f" );
+    m_AttachLayout.AddSlider( m_AttachUSlider, "U", 1, " %5.4f" );
+    m_AttachLayout.AddSlider( m_AttachVSlider, "W", 1, " %5.4f" );
 
 
     //=============== SubSurface Tab ===================//
@@ -627,13 +644,21 @@ GeomScreen::GeomScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
     m_SSConTestToggleGroup.AddButton(m_SSConOutsideButton.GetFlButton());
 
     m_SSConGroup.SetFitWidthFlag(true);
-    m_SSConGroup.SetSameLineFlag(false);
+    m_SSConGroup.SetSameLineFlag(true);
     m_SSConGroup.ForceNewLine();
+    m_SSConGroup.SetChoiceButtonWidth( m_SSConGroup.GetButtonWidth() );
 
     m_SSConSurfTypeChoice.AddItem("Upper");
     m_SSConSurfTypeChoice.AddItem("Lower");
     m_SSConSurfTypeChoice.AddItem("Both");
-    m_SSConGroup.AddChoice(m_SSConSurfTypeChoice, "Upper/Lower:");
+    m_SSConGroup.AddChoice(m_SSConSurfTypeChoice, "Upper/Lower", m_SSConGroup.GetButtonWidth() );
+
+    m_SSConGroup.SetFitWidthFlag( false );
+    m_SSConGroup.AddButton( m_SSConLEFlagButton, "Leading Edge" );
+    m_SSConGroup.SetFitWidthFlag( true );
+
+    m_SSConGroup.SetSameLineFlag(false);
+    m_SSConGroup.ForceNewLine();
 
     m_SSConGroup.AddYGap();
     m_SSConGroup.AddDividerBox( "Spanwise" );
@@ -667,6 +692,27 @@ GeomScreen::GeomScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
 
     m_SSConGroup.AddSlider( m_SSConELenSlider, "End Length", 10.0, "%5.4f" );
     m_SSConGroup.AddSlider( m_SSConEFracSlider, "End Length/C", 1.0, "%5.4f" );
+
+    m_SSConGroup.AddYGap();
+    m_SSConGroup.AddDividerBox( "Surface End Angle" );
+
+    m_SSConGroup.SetSameLineFlag( true );
+    m_SSConGroup.SetFitWidthFlag( false );
+
+    m_SSConGroup.AddButton( m_SSConSAngleButton, "Start" );
+    m_SSConGroup.AddButton( m_SSConEAngleButton, "End" );
+    m_SSConGroup.AddButton( m_SSConSameAngleButton, "Same Angle" );
+
+    m_SSConGroup.SetSameLineFlag( false );
+    m_SSConGroup.SetFitWidthFlag( true );
+    m_SSConGroup.ForceNewLine();
+
+    m_SSConGroup.AddSlider( m_SSConSAngleSlider, "Start Angle", 10.0, "%5.4f" );
+    m_SSConGroup.AddSlider( m_SSConEAngleSlider, "End Angle", 10.0, "%5.4f" );
+
+    m_SSConGroup.AddSlider( m_SSConTessSlider, "Num Points", 100, "%5.0f" );
+
+    m_RotActive = true;
 }
 
 bool GeomScreen::Update()
@@ -712,7 +758,9 @@ bool GeomScreen::Update()
 
     //===== Rel of Abs ====//
     m_XFormAbsRelToggle.Update( geom_ptr->m_AbsRelFlag.GetID() );
-    geom_ptr->DeactivateXForms();
+    m_XRotSlider.Activate();
+    m_YRotSlider.Activate();
+    m_ZRotSlider.Activate();
     if ( geom_ptr->m_AbsRelFlag() ==  GeomXForm::RELATIVE_XFORM )
     {
         m_XLocSlider.Update( 1, geom_ptr->m_XRelLoc.GetID(), geom_ptr->m_XLoc.GetID() );
@@ -732,6 +780,13 @@ bool GeomScreen::Update()
         m_ZRotSlider.Update( 2, geom_ptr->m_ZRelRot.GetID(), geom_ptr->m_ZRot.GetID() );
     }
     m_RotOriginSlider.Update( geom_ptr->m_Origin.GetID() );
+
+    if ( !m_RotActive )
+    {
+        m_XRotSlider.Deactivate();
+        m_YRotSlider.Deactivate();
+        m_ZRotSlider.Deactivate();
+    }
 
     //==== Symmetry ====//
     std::vector<std::string> ancestorNames;
@@ -802,7 +857,6 @@ bool GeomScreen::Update()
     int nmain = geom_ptr->GetNumMainSurfs();
     for ( int i = 0; i < nmain; ++i )
     {
-        char str[256];
         sprintf( str, "Surf_%d", i );
         m_SubSurfSelectSurface.AddItem( str );
     }
@@ -875,6 +929,45 @@ bool GeomScreen::Update()
             m_SSConSAbsRelToggleGroup.Update(sscon->m_AbsRelFlag.GetID());
             m_SSConSEConstButton.Update(sscon->m_ConstFlag.GetID());
 
+            m_SSConSAngleButton.Update( sscon->m_StartAngleFlag.GetID() );
+            m_SSConEAngleButton.Update( sscon->m_EndAngleFlag.GetID() );
+
+            m_SSConSAngleSlider.Update( sscon->m_StartAngle.GetID() );
+            m_SSConEAngleSlider.Update( sscon->m_EndAngle.GetID() );
+
+            m_SSConTessSlider.Update( sscon->m_Tess.GetID() );
+
+            if ( sscon->m_StartAngleFlag() )
+            {
+                m_SSConSAngleSlider.Activate();
+            }
+            else
+            {
+                m_SSConSAngleSlider.Deactivate();
+            }
+
+            m_SSConSameAngleButton.Update( sscon->m_SameAngleFlag.GetID() );
+
+            if ( sscon->m_StartAngleFlag() && sscon->m_EndAngleFlag() )
+            {
+                m_SSConSameAngleButton.Activate();
+            }
+            else
+            {
+                m_SSConSameAngleButton.Deactivate();
+            }
+
+            if ( sscon->m_EndAngleFlag() && ( !sscon->m_SameAngleFlag() || ( !sscon->m_StartAngleFlag() && sscon->m_SameAngleFlag() ) ) )
+            {
+                m_SSConEAngleSlider.Activate();
+            }
+            else
+            {
+                m_SSConEAngleSlider.Deactivate();
+            }
+
+            m_SSConLEFlagButton.Update(sscon->m_LEFlag.GetID());
+
             m_SSConSFracSlider.Deactivate();
             m_SSConSLenSlider.Deactivate();
 
@@ -911,7 +1004,7 @@ bool GeomScreen::Update()
 
     //==== SubSurfBrowser ====//
     m_SubSurfBrowser->clear();
-    static int widths[] = { 75, 75, 75 };
+    static int widths[] = { 150, 80, 60 };
     m_SubSurfBrowser->column_widths( widths );
     m_SubSurfBrowser->column_char( ':' );
 
@@ -1447,6 +1540,441 @@ void SkinScreen::GuiDeviceCallBack( GuiDevice* gui_device )
 
 //==== Fltk  Callbacks ====//
 void SkinScreen::CallBack( Fl_Widget *w )
+{
+    GeomScreen::CallBack( w );
+}
+
+
+//=====================================================================//
+//=====================================================================//
+//=====================================================================//
+BlendScreen::BlendScreen( ScreenMgr* mgr, int w, int h, const string & title ) :
+    GeomScreen( mgr, w, h, title )
+{
+    const char* angleFmt = "%5.2f";
+    const char* strengthFmt = "%5.2f";
+
+    const double angleRng = 90;
+    const double strengthRng = 1;
+    const double dihRng = 20;
+
+    const int bw = 55;
+
+    Fl_Group* blend_tab = AddTab( "Blending" );
+    Fl_Group* blend_group = AddSubGroup( blend_tab, 5 );
+
+    m_BlendLayout.SetGroupAndScreen( blend_group, this );
+
+    m_BlendLayout.AddDividerBox( "Blend Airfoil" );
+
+    m_BlendLayout.AddIndexSelector( m_BlendIndexSelector );
+
+    m_BlendLayout.AddYGap();
+
+    m_BlendLayout.AddDividerBox( "Leading Edge" );
+    m_BlendLayout.AddYGap();
+
+    m_BlendLayout.AddSubGroupLayout( m_InLELayout, m_BlendLayout.GetW()/2 - 2, m_BlendLayout.GetStdHeight() * 4 + m_BlendLayout.GetDividerHeight() );
+    m_BlendLayout.AddX( m_BlendLayout.GetW()/2 + 2 );
+    m_BlendLayout.AddSubGroupLayout( m_OutLELayout, m_BlendLayout.GetW()/2 - 2, m_BlendLayout.GetStdHeight() * 4 + m_BlendLayout.GetDividerHeight() );
+
+    m_InLEChoice.AddItem( "FREE" );
+    m_InLEChoice.AddItem( "ANGLES" );
+    m_InLEChoice.AddItem( "IN_LE_TRAP" );
+    m_InLEChoice.AddItem( "IN_TE_TRAP" );
+    m_InLEChoice.AddItem( "OUT_LE_TRAP" );
+    m_InLEChoice.AddItem( "OUT_TE_TRAP" );
+    m_InLEChoice.AddItem( "IN_ANGLES" );
+    m_InLEChoice.AddItem( "LE_ANGLES" );
+    m_InLEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, FL_MENU_INVISIBLE );
+    m_InLEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, FL_MENU_INVISIBLE );
+
+    m_InLELayout.SetButtonWidth( bw );
+    m_InLELayout.SetChoiceButtonWidth( m_InLELayout.GetButtonWidth() );
+    m_InLELayout.AddDividerBox( "Inboard" );
+    m_InLELayout.AddChoice( m_InLEChoice, "Match:" );
+    m_InLELayout.AddSlider( m_InLESweep, "Sweep", angleRng, angleFmt );
+    m_InLELayout.AddSlider( m_InLEDihedral, "Dihedral", dihRng, angleFmt );
+    m_InLELayout.AddSlider( m_InLEStrength, "Strength", strengthRng, strengthFmt );
+
+    m_OutLEChoice.AddItem( "FREE" );
+    m_OutLEChoice.AddItem( "ANGLES" );
+    m_OutLEChoice.AddItem( "IN_LE_TRAP" );
+    m_OutLEChoice.AddItem( "IN_TE_TRAP" );
+    m_OutLEChoice.AddItem( "OUT_LE_TRAP" );
+    m_OutLEChoice.AddItem( "OUT_TE_TRAP" );
+    m_OutLEChoice.AddItem( "IN_ANGLES" );
+    m_OutLEChoice.AddItem( "LE_ANGLES" );
+    m_OutLEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, FL_MENU_INVISIBLE );
+
+    m_OutLELayout.SetButtonWidth( bw );
+    m_OutLELayout.SetChoiceButtonWidth( m_OutLELayout.GetButtonWidth() );
+    m_OutLELayout.AddDividerBox( "Outboard" );
+    m_OutLELayout.AddChoice( m_OutLEChoice, "Match:" );
+    m_OutLELayout.AddSlider( m_OutLESweep, "Sweep", angleRng, angleFmt );
+    m_OutLELayout.AddSlider( m_OutLEDihedral, "Dihedral", dihRng, angleFmt );
+    m_OutLELayout.AddSlider( m_OutLEStrength, "Strength", strengthRng, strengthFmt );
+
+    m_BlendLayout.ForceNewLine();
+    m_BlendLayout.AddY( m_InLELayout.GetH() );
+
+    m_BlendLayout.AddDividerBox( "Trailing Edge" );
+    m_BlendLayout.AddYGap();
+
+    m_BlendLayout.AddSubGroupLayout( m_InTELayout, m_BlendLayout.GetW()/2 - 2, m_BlendLayout.GetStdHeight() * 4 + m_BlendLayout.GetDividerHeight() );
+    m_BlendLayout.AddX( m_BlendLayout.GetW()/2 + 2 );
+    m_BlendLayout.AddSubGroupLayout( m_OutTELayout, m_BlendLayout.GetW()/2 - 2, m_BlendLayout.GetStdHeight() * 4 + m_BlendLayout.GetDividerHeight() );
+
+
+    m_InTEChoice.AddItem( "FREE" );
+    m_InTEChoice.AddItem( "ANGLES" );
+    m_InTEChoice.AddItem( "IN_LE_TRAP" );
+    m_InTEChoice.AddItem( "IN_TE_TRAP" );
+    m_InTEChoice.AddItem( "OUT_LE_TRAP" );
+    m_InTEChoice.AddItem( "OUT_TE_TRAP" );
+    m_InTEChoice.AddItem( "IN_ANGLES" );
+    m_InTEChoice.AddItem( "LE_ANGLES" );
+    m_InTEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, FL_MENU_INVISIBLE );
+
+    m_InTELayout.SetButtonWidth( bw );
+    m_InTELayout.SetChoiceButtonWidth( m_InTELayout.GetButtonWidth() );
+    m_InTELayout.AddDividerBox( "Inboard" );
+    m_InTELayout.AddChoice( m_InTEChoice, "Match:" );
+    m_InTELayout.AddSlider( m_InTESweep, "Sweep", angleRng, angleFmt );
+    m_InTELayout.AddSlider( m_InTEDihedral, "Dihedral", dihRng, angleFmt );
+    m_InTELayout.AddSlider( m_InTEStrength, "Strength", strengthRng, strengthFmt );
+
+
+    m_OutTEChoice.AddItem( "FREE" );
+    m_OutTEChoice.AddItem( "ANGLES" );
+    m_OutTEChoice.AddItem( "IN_LE_TRAP" );
+    m_OutTEChoice.AddItem( "IN_TE_TRAP" );
+    m_OutTEChoice.AddItem( "OUT_LE_TRAP" );
+    m_OutTEChoice.AddItem( "OUT_TE_TRAP" );
+    m_OutTEChoice.AddItem( "IN_ANGLES" );
+    m_OutTEChoice.AddItem( "LE_ANGLES" );
+
+    m_OutTELayout.SetButtonWidth( bw );
+    m_OutTELayout.SetChoiceButtonWidth( m_OutTELayout.GetButtonWidth() );
+    m_OutTELayout.AddDividerBox( "Outboard" );
+    m_OutTELayout.AddChoice( m_OutTEChoice, "Match:" );
+    m_OutTELayout.AddSlider( m_OutTESweep, "Sweep", angleRng, angleFmt );
+    m_OutTELayout.AddSlider( m_OutTEDihedral, "Dihedral", dihRng, angleFmt );
+    m_OutTELayout.AddSlider( m_OutTEStrength, "Strength", strengthRng, strengthFmt );
+
+    m_BlendLayout.ForceNewLine();
+    m_BlendLayout.AddY( m_OutLELayout.GetH() );
+
+}
+
+
+//==== Update Pod Screen ====//
+bool BlendScreen::Update()
+{
+    assert( m_ScreenMgr );
+
+    Geom* geom_ptr = m_ScreenMgr->GetCurrGeom();
+    if ( !geom_ptr )
+    {
+        Hide();
+        return false;
+    }
+
+    GeomScreen::Update();
+
+    GeomXSec* geomxsec_ptr = dynamic_cast< GeomXSec* >( geom_ptr );
+    assert( geomxsec_ptr );
+
+    WingGeom* wing_ptr = dynamic_cast< WingGeom* >( geom_ptr );
+    assert( wing_ptr );
+
+
+    //==== Skin & XSec Index Display ===//
+    int xsid = wing_ptr->GetActiveAirfoilIndex();
+    m_BlendIndexSelector.SetIndex( xsid );
+
+    BlendWingSect* xs = ( BlendWingSect* ) geomxsec_ptr->GetXSec( xsid );
+    if ( xs )
+    {
+        bool firstxs = xsid == 0;
+        bool lastxs = xsid == ( geomxsec_ptr->GetXSecSurf( 0 )->NumXSec() - 1 );
+
+        //==== Blend ====//
+
+        m_InLEChoice.Update( xs->m_InLEMode.GetID() );
+        m_InLESweep.Update( xs->m_InLESweep.GetID() );
+        m_InLEDihedral.Update( xs->m_InLEDihedral.GetID() );
+        m_InLEStrength.Update( xs->m_InLEStrength.GetID() );
+
+        m_InTEChoice.Update( xs->m_InTEMode.GetID() );
+        m_InTESweep.Update( xs->m_InTESweep.GetID() );
+        m_InTEDihedral.Update( xs->m_InTEDihedral.GetID() );
+        m_InTEStrength.Update( xs->m_InTEStrength.GetID() );
+
+        m_OutLEChoice.Update( xs->m_OutLEMode.GetID() );
+        m_OutLESweep.Update( xs->m_OutLESweep.GetID() );
+        m_OutLEDihedral.Update( xs->m_OutLEDihedral.GetID() );
+        m_OutLEStrength.Update( xs->m_OutLEStrength.GetID() );
+
+        m_OutTEChoice.Update( xs->m_OutTEMode.GetID() );
+        m_OutTESweep.Update( xs->m_OutTESweep.GetID() );
+        m_OutTEDihedral.Update( xs->m_OutTEDihedral.GetID() );
+        m_OutTEStrength.Update( xs->m_OutTEStrength.GetID() );
+
+
+        // Set pull-down menu flags to 'normal'
+        m_InTEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, 0 );
+
+        m_OutLEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, 0 );
+
+        m_OutTEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, 0 );
+        m_OutTEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, 0 );
+
+        m_InLEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, 0 );
+        m_InLEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, 0 );
+        m_InLEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, 0 );
+        m_InLEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, 0 );
+
+        m_InTEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, 0 );
+        m_InTEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, 0 );
+        m_InTEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, 0 );
+        m_InTEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, 0 );
+
+        m_OutLEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, 0 );
+        m_OutLEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, 0 );
+        m_OutLEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, 0 );
+        m_OutLEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, 0 );
+
+        m_OutTEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, 0 );
+        m_OutTEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, 0 );
+        m_OutTEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, 0 );
+        m_OutTEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, 0 );
+
+        if ( xs->m_InLEMode() != BLEND_ANGLES )
+        {
+            m_InTEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, FL_MENU_INACTIVE );
+            m_OutLEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, FL_MENU_INACTIVE );
+        }
+
+        if ( xs->m_InTEMode() != BLEND_ANGLES && xs->m_InTEMode() != BLEND_MATCH_LE_ANGLES )
+        {
+            m_OutTEChoice.SetFlag( BLEND_MATCH_IN_ANGLES, FL_MENU_INACTIVE );
+        }
+
+        if ( xs->m_OutLEMode() != BLEND_ANGLES && xs->m_OutLEMode() != BLEND_MATCH_IN_ANGLES )
+        {
+            m_OutTEChoice.SetFlag( BLEND_MATCH_LE_ANGLES, FL_MENU_INACTIVE );
+        }
+
+        if ( firstxs )
+        {
+            m_InLEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, FL_MENU_INACTIVE );
+            m_InLEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_InTEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, FL_MENU_INACTIVE );
+            m_InTEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_OutLEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, FL_MENU_INACTIVE );
+            m_OutLEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_OutTEChoice.SetFlag( BLEND_MATCH_IN_LE_TRAP, FL_MENU_INACTIVE );
+            m_OutTEChoice.SetFlag( BLEND_MATCH_IN_TE_TRAP, FL_MENU_INACTIVE );
+        }
+
+        if ( lastxs )
+        {
+            m_InLEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, FL_MENU_INACTIVE );
+            m_InLEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_InTEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, FL_MENU_INACTIVE );
+            m_InTEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_OutLEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, FL_MENU_INACTIVE );
+            m_OutLEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, FL_MENU_INACTIVE );
+
+            m_OutTEChoice.SetFlag( BLEND_MATCH_OUT_LE_TRAP, FL_MENU_INACTIVE );
+            m_OutTEChoice.SetFlag( BLEND_MATCH_OUT_TE_TRAP, FL_MENU_INACTIVE );
+        }
+
+        // Update menu while keeping setting.
+        m_InLEChoice.UpdateItems( true );
+        m_InTEChoice.UpdateItems( true );
+        m_OutLEChoice.UpdateItems( true );
+        m_OutTEChoice.UpdateItems( true );
+
+        m_InLESweep.Deactivate();
+        m_InLEDihedral.Deactivate();
+
+        m_InTESweep.Deactivate();
+        m_InTEDihedral.Deactivate();
+
+        if ( firstxs )
+        {
+            m_InLEChoice.Deactivate();
+            m_InLEStrength.Deactivate();
+
+            m_InTEChoice.Deactivate();
+            m_InTEStrength.Deactivate();
+        }
+        else
+        {
+            m_InLEChoice.Activate();
+            m_InLEStrength.Activate();
+
+            m_InTEChoice.Activate();
+            m_InTEStrength.Activate();
+
+            switch (xs->m_InLEMode())
+            {
+                case BLEND_ANGLES :
+                {
+                    m_InLESweep.Activate();
+                    m_InLEDihedral.Activate();
+                    break;
+                }
+                case BLEND_FREE :
+                {
+                    m_InLEStrength.Deactivate();
+                    break;
+                }
+                case BLEND_MATCH_IN_ANGLES :
+                case BLEND_MATCH_LE_ANGLES :
+                case BLEND_MATCH_IN_LE_TRAP :
+                case BLEND_MATCH_IN_TE_TRAP :
+                case BLEND_MATCH_OUT_LE_TRAP :
+                case BLEND_MATCH_OUT_TE_TRAP :
+                {
+                    break;
+                }
+            }
+
+            switch (xs->m_InTEMode())
+            {
+                case BLEND_ANGLES :
+                {
+                    m_InTESweep.Activate();
+                    m_InTEDihedral.Activate();
+                    break;
+                }
+                case BLEND_FREE :
+                {
+                    m_InTEStrength.Deactivate();
+                    break;
+                }
+                case BLEND_MATCH_IN_ANGLES :
+                case BLEND_MATCH_LE_ANGLES :
+                case BLEND_MATCH_IN_LE_TRAP :
+                case BLEND_MATCH_IN_TE_TRAP :
+                case BLEND_MATCH_OUT_LE_TRAP :
+                case BLEND_MATCH_OUT_TE_TRAP :
+                {
+                    break;
+                }
+            }
+        }
+
+        m_OutLESweep.Deactivate();
+        m_OutLEDihedral.Deactivate();
+
+        m_OutTESweep.Deactivate();
+        m_OutTEDihedral.Deactivate();
+
+        if ( lastxs )
+        {
+            m_OutLEChoice.Deactivate();
+            m_OutLEStrength.Deactivate();
+
+            m_OutTEChoice.Deactivate();
+            m_OutTEStrength.Deactivate();
+        }
+        else
+        {
+            m_OutLEChoice.Activate();
+            m_OutLEStrength.Activate();
+
+            m_OutTEChoice.Activate();
+            m_OutTEStrength.Activate();
+
+            switch (xs->m_OutLEMode())
+            {
+                case BLEND_ANGLES :
+                {
+                    m_OutLESweep.Activate();
+                    m_OutLEDihedral.Activate();
+                    break;
+                }
+                case BLEND_FREE :
+                {
+                    m_OutLEStrength.Deactivate();
+                    break;
+                }
+                case BLEND_MATCH_IN_ANGLES :
+                case BLEND_MATCH_LE_ANGLES :
+                case BLEND_MATCH_IN_LE_TRAP :
+                case BLEND_MATCH_IN_TE_TRAP :
+                case BLEND_MATCH_OUT_LE_TRAP :
+                case BLEND_MATCH_OUT_TE_TRAP :
+                {
+                    break;
+                }
+            }
+
+            switch (xs->m_OutTEMode())
+            {
+                case BLEND_ANGLES :
+                {
+                    m_OutTESweep.Activate();
+                    m_OutTEDihedral.Activate();
+                    break;
+                }
+                case BLEND_FREE :
+                {
+                    m_OutTEStrength.Deactivate();
+                    break;
+                }
+                case BLEND_MATCH_IN_ANGLES :
+                case BLEND_MATCH_LE_ANGLES :
+                case BLEND_MATCH_IN_LE_TRAP :
+                case BLEND_MATCH_IN_TE_TRAP :
+                case BLEND_MATCH_OUT_LE_TRAP :
+                case BLEND_MATCH_OUT_TE_TRAP :
+                {
+                    break;
+                }
+            }
+        }
+
+
+    }
+    return true;
+}
+
+void BlendScreen::GuiDeviceCallBack( GuiDevice* gui_device )
+{
+    //==== Find Fuselage Ptr ====//
+    Geom* geom_ptr = m_ScreenMgr->GetCurrGeom();
+    if ( !geom_ptr )
+    {
+        return;
+    }
+    GeomXSec* geomxsec_ptr = dynamic_cast< GeomXSec* >( geom_ptr );
+    assert( geomxsec_ptr );
+
+    WingGeom* wing_ptr = dynamic_cast< WingGeom* >( geom_ptr );
+    assert( wing_ptr );
+
+    if ( gui_device == &m_BlendIndexSelector )
+    {
+        wing_ptr->SetActiveAirfoilIndex( m_BlendIndexSelector.GetIndex() );
+        wing_ptr->Update();
+    }
+
+    GeomScreen::GuiDeviceCallBack( gui_device );
+}
+
+
+//==== Fltk  Callbacks ====//
+void BlendScreen::CallBack( Fl_Widget *w )
 {
     GeomScreen::CallBack( w );
 }

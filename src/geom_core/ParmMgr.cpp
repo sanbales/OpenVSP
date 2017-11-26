@@ -8,12 +8,6 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "ParmMgr.h"
-#include "VehicleMgr.h"
-#include "UsingCpp11.h"
-#include "APIDefines.h"
-#include <assert.h>
-#include <time.h>
-#include <algorithm>
 
 using std::map;
 using std::string;
@@ -26,6 +20,7 @@ ParmMgrSingleton::ParmMgrSingleton()
     m_NumParmChanges = 0;
     m_ChangeCnt = 0;
     m_LastUndoFlag = false;
+    m_LastReset = "";
 }
 
 //==== Add Parm To Map ====//
@@ -90,20 +85,6 @@ void ParmMgrSingleton::RemoveParmContainer( ParmContainer* pc  )
         m_ParmContainerMap.erase( iter );
     }
 }
-
-//==== Name Compare ====//
-bool NameCompare( const string a, const string b )
-{
-    ParmContainer* pcA = ParmMgr.FindParmContainer( a );
-    ParmContainer* pcB = ParmMgr.FindParmContainer( b );
-
-    if ( pcA && pcB )
-    {
-        return ( pcA->GetName() < pcB->GetName() );
-    }
-    return ( false );
-}
-
 
 //==== Find Parm GivenID ====//
 Parm* ParmMgrSingleton::FindParm( const string & id )
@@ -285,9 +266,22 @@ string ParmMgrSingleton::RemapID( const string & oldID, const string & suggestID
     return newID;
 }
 
-void ParmMgrSingleton::ResetRemapID()
+string ParmMgrSingleton::ResetRemapID( const string & lastReset )
 {
+    if ( lastReset != "" && lastReset != m_LastReset )
+    {
+        MessageData errMsgData;
+        errMsgData.m_String = "Error";
+        errMsgData.m_IntVec.push_back( vsp::VSP_UNEXPECTED_RESET_REMAP_ID );
+        errMsgData.m_StringVec.push_back( "Error:  Unexpected intermediate ResetRemapID." );
+
+        MessageMgr::getInstance().SendAll( errMsgData );
+    }
+
     m_IDRemap.clear();
+
+    m_LastReset = GenerateID( 3 );
+    return m_LastReset;
 }
 
 //==== Get Names For Parm Given ID ====//

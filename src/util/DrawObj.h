@@ -56,6 +56,9 @@ public:
     * VSP_PICK_GEOM - This type drawObj enables geometry picking.
     * VSP_PICK_LOCATION - This type drawObj enables location picking.
     * VSP_CLIP - Add clipping plane.
+    * VSP_HIDDEN_QUADS - Render Quads to solid wire frame.
+    * VSP_SHADED_QUADS - Render Quads to mesh with lighting.
+    * VSP_WIRE_QUADS - Render Quads to wire frame.
     */
 
     vec3d ColorWheel( double angle ); // Returns rgb for an angle given in degrees
@@ -73,12 +76,15 @@ public:
         VSP_HIDDEN_TRIS,
         VSP_SHADED_TRIS,
         VSP_HIDDEN_TRIS_CFD,
+        VSP_HIDDEN_QUADS,
         VSP_SETTING,
         VSP_RULER,
         VSP_PICK_VERTEX,
         VSP_PICK_GEOM,
         VSP_PICK_LOCATION,
         VSP_CLIP,
+        VSP_SHADED_QUADS,
+        VSP_WIRE_QUADS,
     };
 
     /*
@@ -272,11 +278,6 @@ public:
     Ruler m_Ruler;
 
     /*
-    * No Use for now.
-    */
-    int m_Priority;
-
-    /*
     * Line thickness.
     * LineWidth is set to 1.0 by default.
     */
@@ -367,7 +368,16 @@ protected:
 
 };
 
+void MakeArrowhead( const vec3d &ptip, const vec3d &uref, double len, vector < vec3d > &pts );
+void MakeArrowhead( const vec3d &ptip, const vec3d &uref, double len, DrawObj &dobj );
 
+void MakeCircle( const vec3d &pcen, const vec3d &norm, double rad, vector < vec3d > &pts );
+void MakeCircle( const vec3d &pcen, const vec3d &norm, const vec3d &pstart, vector < vec3d > &pts );
+void MakeCircle( const vec3d &pcen, const vec3d &norm, double rad, DrawObj &dobj );
+
+void MakeCircleArrow( const vec3d &pcen, const vec3d &norm, double rad, DrawObj &dobj, DrawObj &arrow );
+
+void MakeDashedLine( const vec3d &pstart, const vec3d &pend, int ndash, vector < vec3d > &dashpts );
 
 #endif
 

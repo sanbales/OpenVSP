@@ -16,6 +16,9 @@
 #include "VSP_Node.H"
 #include "VSP_Loop.H"
 
+#define INT_BOUNDARY_EDGE 1
+#define VLM_BOUNDARY_EDGE 2  
+
 // Small class for building edge list
 
 class EDGE_ENTRY {
@@ -61,16 +64,17 @@ private:
     int CourseGridEdge_;
     int FineGridEdge_;
     
-    int ThereAreChildren_;
     VSP_EDGE *Child1_;
     VSP_EDGE *Child2_;
     
     int EdgeWasUsedForLoop_;
     
     double Sigma_;
+    double S_;
     double Length_;
     double Forces_[3];
     double Trefftz_Forces_[3];
+    double Unsteady_Forces_[3];
     
     // Vortex solution data
     
@@ -78,17 +82,12 @@ private:
  
     // Wing and edge, or trailing node this vortex belongs to
     
-    int Wing_;
-    int Body_;
+    int DegenWing_;
+    int DegenBody_;
+    int Cart3DSurface_;
     int Node_;
 
-    // Rotation Quaternions
-    
-    QUAT Quat_;
-    QUAT InverseQuat_;
-    QUAT VecA_, VecB_;
-
-    // Edge coefficients
+    // Edge nodes - true geometry (camber line, or actual)
     
     double X1_;
     double Y1_;
@@ -98,14 +97,23 @@ private:
     double Y2_;
     double Z2_;
 
+    // Edge centroid
+    
     double XYZc_[3];
+
     VSP_NODE VortexCentroid_;
+
+    // Edge direction vector
     
     double Vec_[3];
+    
+    // Distance tolerances for velocity evaluations
    
     double Tolerance_1_;
     double Tolerance_2_;
     double Tolerance_4_;
+    
+    // Local grid spacing estimate
 
     double LocalSpacing_;
     
@@ -124,6 +132,10 @@ private:
     // Circulation strength
     
     double Gamma_;
+    
+    // Edge matrix coefficients
+    
+    double EdgeCoef_[2];
 
     // Setup routines
     
@@ -138,6 +150,12 @@ private:
                                    double &X1, double &Y1, double &Z1,
                                    double &Xd, double &Yd, double &Zd,
                                    double &t1, double &t2);    
+                                   
+    // Airfoil data
+
+    double ThicknessToChord_;
+    double LocationOfMaxThickness_;
+    double RadiusToChord_;                                   
 
 public:
 
@@ -176,9 +194,10 @@ public:
     int &VortexLoop1(void) { return VortexLoop1_; };
     int &VortexLoop2(void) { return VortexLoop2_; };
 
-    // Edge Sigma, and length
+    // Edge Sigma, S, and length
     
     double &Sigma(void) { return Sigma_; };
+    double &S(void) { return S_; };
     double &Length(void) { return Length_; };
     
     int &EdgeType(void) { return EdgeType_; };
@@ -198,8 +217,9 @@ public:
 
     // Accesss to Vortex edge data
 
-    int &Wing(void) { return Wing_; };
-    int &Body(void) { return Body_; };
+    int &DegenWing(void) { return DegenWing_; };
+    int &DegenBody(void) { return DegenBody_; };
+    int &Cart3DSurface(void) { return Cart3DSurface_; };
     int &Node(void) { return Node_; };
     
     // Solver routines
@@ -230,6 +250,10 @@ public:
     
     double &Gamma(void) { return Gamma_; };
     
+    // Access to the edge matrix coefficients
+
+    double &EdgeCoef(int i) { return EdgeCoef_[i]; };
+    
     // Access to the forces
     
     double &Fx(void) { return Forces_[0]; };
@@ -239,6 +263,10 @@ public:
     double &Trefftz_Fx(void) { return Trefftz_Forces_[0]; };
     double &Trefftz_Fy(void) { return Trefftz_Forces_[1]; };
     double &Trefftz_Fz(void) { return Trefftz_Forces_[2]; };
+    
+    double &Unsteady_Fx(void) { return Unsteady_Forces_[0]; };
+    double &Unsteady_Fy(void) { return Unsteady_Forces_[1]; };
+    double &Unsteady_Fz(void) { return Unsteady_Forces_[2]; };    
     
     // Access to local spacing
     
@@ -259,12 +287,21 @@ public:
     double Xc(void) { return XYZc_[0]; };
     double Yc(void) { return XYZc_[1]; };
     double Zc(void) { return XYZc_[2]; };
+    
     double *xyz_c(void) { return XYZc_; };
+    
     VSP_NODE &VortexCentroid(void) { return VortexCentroid_; };
 
     // Vortex unit vector
     
     double *Vec(void) { return Vec_; };    
+    
+    // Airfoil data
+    
+    double &ThicknessToChord(void) { return ThicknessToChord_; };
+    double &LocationOfMaxThickness(void ) { return LocationOfMaxThickness_; };
+    double &RadiusToChord(void) { return RadiusToChord_; };        
+
 
 };
 

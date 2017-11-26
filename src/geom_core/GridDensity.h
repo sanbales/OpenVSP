@@ -25,7 +25,7 @@
 #include "DrawObj.h"
 
 #include <assert.h>
-#include <math.h>
+#include <cmath>
 
 #include <vector>
 #include <set>
@@ -150,25 +150,12 @@ class BaseSimpleSource
 {
 public:
 
-	BaseSimpleSource();
+    BaseSimpleSource();
     virtual ~BaseSimpleSource()   {};
 
-    virtual void SetName( const string str )
-    {
-        m_Name = str;
-    }
-    virtual string GetName()
-    {
-        return m_Name;
-    }
     virtual void AdjustLen( double val );
 
     virtual double GetTargetLen( double base_len, vec3d &  pos ) = 0;
-
-    virtual int GetType()
-    {
-        return m_Type;
-    }
 
     virtual void Draw()                                             {}
 
@@ -185,15 +172,10 @@ public:
     double m_Len;
     double m_Rad;
 
-    int m_MainSurfIndx;
     int m_SurfIndx;
     string m_OrigSourceID;
 
 protected:
-
-    string m_Name;
-
-    int m_Type;
 
     BndBox m_Box;
 
@@ -204,7 +186,7 @@ protected:
 class PointSimpleSource : public BaseSimpleSource
 {
 public:
-	PointSimpleSource();
+    PointSimpleSource();
     virtual ~PointSimpleSource()      {}
 
     double GetTargetLen( double base_len, vec3d &  pos );
@@ -231,7 +213,7 @@ protected:
 class LineSimpleSource : public BaseSimpleSource
 {
 public:
-	LineSimpleSource();
+    LineSimpleSource();
     virtual ~LineSimpleSource()       {}
 
     void SetEndPnts( const vec3d & pnt1, const vec3d & pnt2 );
@@ -278,7 +260,7 @@ protected:
 class BoxSimpleSource : public BaseSimpleSource
 {
 public:
-	BoxSimpleSource();
+    BoxSimpleSource();
     virtual ~BoxSimpleSource()        {};
 
     void SetMinMaxPnts( const vec3d & min_pnt, const vec3d & max_pnt );

@@ -8,11 +8,7 @@
 #include "BlankScreen.h"
 #include "BlankGeom.h"
 #include "ScreenMgr.h"
-#include "EventMgr.h"
-#include "Vehicle.h"
 #include "ParmMgr.h"
-
-#include <assert.h>
 
 
 //==== Constructor ====//
@@ -22,10 +18,6 @@ BlankScreen::BlankScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 300, 525, "Blank" 
     Fl_Group* mass_group = AddSubGroup( mass_tab, 5 );
 
     m_MassLayout.SetGroupAndScreen( mass_group, this );
-
-    m_MassLayout.AddDividerBox( "Axis Display" );
-    m_MassLayout.AddSlider( m_AxisLengthSlider, "Length", 10, "%7.5f" );
-    m_MassLayout.AddYGap();
 
     m_MassLayout.AddDividerBox( "Point Mass" );
     m_MassLayout.AddYGap();
@@ -70,8 +62,6 @@ bool BlankScreen::Update()
     assert( blank_geom_ptr );
     m_PointMassButton.Update( blank_geom_ptr->m_PointMassFlag.GetID() );
     m_MassInput.Update( blank_geom_ptr->m_PointMass.GetID() );
-
-    m_AxisLengthSlider.Update( blank_geom_ptr->m_AxisLength.GetID() );
 
     return true;
 }

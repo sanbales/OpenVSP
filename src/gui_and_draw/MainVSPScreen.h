@@ -15,7 +15,7 @@
 #include "MenuItem.h"
 #include "ScreenBase.h"
 #include "GuiDevice.h"
-#include "FL/Fl_Box.h"
+#include "FL/Fl_Box.H"
 
 namespace VSPGUI
 {
@@ -110,15 +110,19 @@ protected:
     ScreenMenuItem m_AdvLinkMenuItem;
     ScreenMenuItem m_UserParmMenuItem;
     ScreenMenuItem m_FitModelMenuItem;
+    ScreenMenuItem m_SnapToMenuItem;
+    ScreenMenuItem m_VarPresetMenuItem;
 
     ScreenMenuItem m_CompGeomMenuItem;
-    ScreenMenuItem m_AWAVEMenuItem;
+    ScreenMenuItem m_WaveDragMenuItem;
     ScreenMenuItem m_PSliceMenuItem;
     ScreenMenuItem m_MassPropMenuItem;
+    ScreenMenuItem m_ProjectionMenuItem;
     ScreenMenuItem m_CFDMeshMenuItem;
     // ScreenMenuItem m_WingStructMenuItem;
     ScreenMenuItem m_DegenGeomMenuItem;
     ScreenMenuItem m_VSPAEROMenuItem;
+    ScreenMenuItem m_ParasiteDragMenuItem;
 
     // ScreenMenuItem m_AboutMenuItem;
     // ScreenMenuItem m_OnlineHelpMenuItem;

@@ -23,6 +23,8 @@ using std::map;
 
 class Parm;
 
+bool NameCompare( const string &parmID_A, const string &parmID_B );
+
 //==============================================================================//
 //==============================================================================//
 //==============================================================================//
@@ -42,7 +44,6 @@ public:
     virtual string GetParentContainer()             { return m_ParentContainer; }
     virtual ParmContainer* GetParentContainerPtr();
 
-    virtual bool GetLateUpdateFlag()                { return m_LateUpdateFlag; }
     virtual void SetLateUpdateFlag( bool flag )     { m_LateUpdateFlag = flag; }
     virtual int GetLatestChangeCnt();
 
@@ -73,10 +74,7 @@ protected:
 
     string m_Name;
 
-    bool m_LockParmContainerID;
-    bool m_LockParmID;
     bool m_LateUpdateFlag;
-    bool m_LinkableFlag;
 
     vector< string > m_ParmVec;                         // Parms in container
 
@@ -117,6 +115,8 @@ public:
 
     virtual xmlNodePtr EncodeXml( xmlNodePtr & node );
     virtual xmlNodePtr DecodeXml( xmlNodePtr & node );
+
+    virtual bool SortVars();
 
 protected:
 

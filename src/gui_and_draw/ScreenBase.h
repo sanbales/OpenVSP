@@ -132,7 +132,7 @@ class TabScreen : public BasicScreen
 {
 public:
 
-    TabScreen( ScreenMgr* mgr, int w, int h, const string & title, int baseymargin = 0 );
+    TabScreen( ScreenMgr* mgr, int w, int h, const string & title, int baseymargin = 0, int basexmargin = 0 );
     virtual ~TabScreen();
 
     virtual bool Update()
@@ -186,6 +186,9 @@ public:
 
     GroupLayout m_XFormLayout;
     GroupLayout m_SubSurfLayout;
+
+    GroupLayout m_SymmLayout;
+    GroupLayout m_AttachLayout;
 
     //==== Names, Color, Material ====//
     StringInput m_NameInput;
@@ -254,8 +257,8 @@ public:
     ToggleButton m_RotUVButton;
     ToggleRadioGroup m_RotToggleGroup;
 
-    SliderInput m_AttachUSlider;
-    SliderInput m_AttachVSlider;
+    SliderAdjRangeInput m_AttachUSlider;
+    SliderAdjRangeInput m_AttachVSlider;
 
     //====== SubSurface Tab =====//
     int m_SubSurfTab_ind;
@@ -306,11 +309,11 @@ public:
 
     // SS_Control
     GroupLayout m_SSConGroup;
-    SliderInput m_SSConUSSlider;
-    SliderInput m_SSConUESlider;
-    SliderInput m_SSConSFracSlider;
+    SliderAdjRangeInput m_SSConUSSlider;
+    SliderAdjRangeInput m_SSConUESlider;
+    SliderAdjRangeInput m_SSConSFracSlider;
     SliderAdjRangeInput m_SSConSLenSlider;
-    SliderInput m_SSConEFracSlider;
+    SliderAdjRangeInput m_SSConEFracSlider;
     SliderAdjRangeInput m_SSConELenSlider;
 
     ToggleButton m_SSConSAbsButton;
@@ -319,10 +322,23 @@ public:
 
     ToggleButton m_SSConSEConstButton;
 
+    ToggleButton m_SSConLEFlagButton;
+
     ToggleButton m_SSConInsideButton;
     ToggleButton m_SSConOutsideButton;
     ToggleRadioGroup m_SSConTestToggleGroup;
     Choice m_SSConSurfTypeChoice;
+
+    SliderAdjRangeInput m_SSConSAngleSlider;
+    SliderAdjRangeInput m_SSConEAngleSlider;
+    ToggleButton m_SSConSAngleButton;
+    ToggleButton m_SSConEAngleButton;
+    ToggleButton m_SSConSameAngleButton;
+
+    SliderInput m_SSConTessSlider;
+
+protected:
+    bool m_RotActive;
 };
 
 //==== Skin Screen ====//
@@ -372,6 +388,52 @@ protected:
     SkinControl m_LeftSlewSkinControl;
     SkinControl m_LeftStrengthSkinControl;
     SkinControl m_LeftCurvatureSkinControl;
+
+};
+
+class BlendScreen : public GeomScreen
+{
+public:
+    BlendScreen( ScreenMgr* mgr, int w, int h, const string & title );
+    virtual ~BlendScreen()                               {}
+
+    virtual bool Update( );
+    virtual void CallBack( Fl_Widget *w );
+    virtual void GuiDeviceCallBack( GuiDevice* device );
+    static void staticScreenCB( Fl_Widget *w, void* data )
+    {
+        ( ( BlendScreen* )data )->CallBack( w );
+    }
+
+protected:
+
+    GroupLayout m_BlendLayout;
+
+    IndexSelector m_BlendIndexSelector;
+
+    GroupLayout m_InLELayout;
+    Choice m_InLEChoice;
+    SliderAdjRangeInput m_InLESweep;
+    SliderAdjRangeInput m_InLEDihedral;
+    SliderAdjRangeInput m_InLEStrength;
+
+    GroupLayout m_InTELayout;
+    Choice m_InTEChoice;
+    SliderAdjRangeInput m_InTESweep;
+    SliderAdjRangeInput m_InTEDihedral;
+    SliderAdjRangeInput m_InTEStrength;
+
+    GroupLayout m_OutLELayout;
+    Choice m_OutLEChoice;
+    SliderAdjRangeInput m_OutLESweep;
+    SliderAdjRangeInput m_OutLEDihedral;
+    SliderAdjRangeInput m_OutLEStrength;
+
+    GroupLayout m_OutTELayout;
+    Choice m_OutTEChoice;
+    SliderAdjRangeInput m_OutTESweep;
+    SliderAdjRangeInput m_OutTEDihedral;
+    SliderAdjRangeInput m_OutTEStrength;
 
 };
 

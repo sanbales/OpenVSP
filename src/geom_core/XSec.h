@@ -38,10 +38,6 @@ public:
     virtual void Update() = 0;
 
     virtual void SetGroupDisplaySuffix( int num );
-    virtual string GetGroupName()
-    {
-        return m_GroupName;
-    }
 
     virtual string GetName();
 
@@ -49,7 +45,7 @@ public:
     virtual VspCurve& GetUntransformedCurve();
     virtual VspCurve& GetCurve();
 
-    virtual vector< vec3d > GetDrawLines( int num_pnts, Matrix4d &transMat );
+    virtual vector< vec3d > GetDrawLines( Matrix4d &transMat );
 
     virtual XSecCurve* GetXSecCurve()
     {
@@ -105,7 +101,6 @@ protected:
 
     string m_GroupName;
     int m_GroupSuffix;
-    string m_ParentGeomID;
 
     VspCurve m_TransformedCurve;
 
@@ -342,6 +337,8 @@ public:
     Parm m_XDelta;
     Parm m_YDelta;
     Parm m_ZDelta;
+
+    Parm m_Spin;
 
     Parm m_XRotate;
     Parm m_YRotate;

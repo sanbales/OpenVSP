@@ -39,10 +39,15 @@ public:
     void Split( double u );
     void Append( VspCurve & input_crv ); // Append Curve
 
+    void Spin( double u );
+    void Spin01( double u );
+
     bool IsClosed() const;
 
     void RoundJoint( double rad, int i );
     void RoundAllJoints( double rad );
+
+    void Modify( int type, bool le, double len, double off, double str );
 
     // creates C0 continuous piecewise line
     void InterpolateLinear( vector< vec3d > & input_pnt_vec, const vector<double> &param, bool closed_flag );
@@ -56,7 +61,7 @@ public:
     // creates C2 continuous piecewise cubic spline polynomial with clamped end slopes
     void InterpolateCSpline( vector< vec3d > & input_pnt_vec, const vec3d &start_slope, const vec3d &end_slope, const vector<double> &param );
 
-    void ToBinaryCubic();
+    void ToBinaryCubic( bool wingtype );
 
     void SetCubicControlPoints( const vector< vec3d > & cntrl_pts, bool closed_flag );
 
@@ -65,6 +70,8 @@ public:
     void AppendCurveSegment( curve_segment_type &c );
 
     double FindDistant( double &u, const vec3d &pt, const double &d, const double &u0 ) const;
+    double FindDistant( double &u, const vec3d &pt, const double &d ) const;
+    double FindDistant( double &u, const vec3d &pt, const double &d, const double &umin, const double &umax ) const;
     double FindThickness( double &u1, double &u2, const vec3d &pt, const double &thick, const double &u10, const double &u20 ) const;
 
     double FindNearest( double &u, const vec3d &pt ) const;
@@ -73,21 +80,27 @@ public:
     double FindNearest01( double &u, const vec3d &pt ) const;
     double FindNearest01( double &u, const vec3d &pt, const double &u0 ) const;
 
+    double FindMinimumDimension( double &u, const int &idim, const double &u0 ) const;
+    double FindMinimumDimension( double &u, const int &idim ) const;
+
     //===== Bezier Funcs ====//
-    vec3d CompPnt( double u );
-    vec3d CompTan( double u );
+    vec3d CompPnt( double u ) const;
+    vec3d CompTan( double u ) const;
+    vec3d CompTan( double u, int sideflag ) const;
+    vec3d CompNorm( double u ) const;
+    vec3d CompNorm( double u, int sideflag ) const;
 
-    vec3d CompPnt01( double u );
-    vec3d CompTan01( double u );
+    double CompCurve( double u ) const;
+    double CompCurve( double u, int sideflag ) const;
 
-    double CompLength( double tol = 1e-6 );
+    enum { BEFORE, AFTER };
+
+    vec3d CompPnt01( double u ) const;
+    vec3d CompTan01( double u ) const;
+
+    double CompLength( double tol = 1e-6 ) const;
 
     //===== Tesselate ====//
-    // These three currently unused.
-    void Tesselate( int num_pnts_u, vector< vec3d > & output );
-    void Tesselate( int num_pnts_u, vector< vec3d > & output, vector< double > &uout );
-    void Tesselate( int num_pnts_u, double umin, double umax, vector< vec3d > & output, vector< double > &uout );
-
     void TesselateNoCorner( int num_pnts_u, double umin, double umax, vector< vec3d > & output, vector< double > &uout );
     void Tesselate( const vector< double > &u, vector< vec3d > & output );
 
@@ -106,6 +119,12 @@ public:
 
     void Transform( Matrix4d & mat );
 
+    void Scale( double s );
+
+    void ScaleX( double s );
+    void ScaleY( double s );
+    void ScaleZ( double s );
+
     void ReflectXY();
     void ReflectXZ();
     void ReflectYZ();
@@ -117,6 +136,10 @@ public:
     bool IsEqual( const VspCurve & crv );
 
     void GetBoundingBox( BndBox &bb ) const;
+
+    double CalculateThick( double &loc ) const;
+
+    double Angle( const double & u1, const int &dir1, const double & u2, const int &dir2, const bool & flipflag ) const;
 
 protected:
     piecewise_curve_type m_Curve;

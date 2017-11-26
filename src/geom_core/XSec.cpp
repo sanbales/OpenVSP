@@ -9,14 +9,9 @@
 
 #include "XSec.h"
 #include "Geom.h"
-#include "XSecSurf.h"
-#include "Parm.h"
-#include "VehicleMgr.h"
 #include "ParmMgr.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
 #include <float.h>
-#include <stdio.h>
 
 #include "Vehicle.h"
 
@@ -151,7 +146,7 @@ VspCurve& XSec::GetUntransformedCurve()
     return m_XSCurve->GetCurve();
 }
 
-vector< vec3d > XSec::GetDrawLines( int num_pnts, Matrix4d &transMat  )
+vector< vec3d > XSec::GetDrawLines( Matrix4d &transMat  )
 {
     vector< vec3d > lines;
 
@@ -196,7 +191,7 @@ Matrix4d* XSec::GetTransform()
 //==== Copy From XSec ====//
 void XSec::CopyFrom( XSec* xs )
 {
-    ParmMgr.ResetRemapID();
+    string lastreset = ParmMgr.ResetRemapID();
     xmlNodePtr root = xmlNewNode( NULL, ( const xmlChar * )"Vsp_Geometry" );
     if ( xs->GetType() == GetType() && xs->GetXSecCurve()->GetType() == GetXSecCurve()->GetType() )
     {
@@ -211,7 +206,7 @@ void XSec::CopyFrom( XSec* xs )
         m_XSCurve->SetWidthHeight( xs->GetXSecCurve()->GetWidth(), xs->GetXSecCurve()->GetHeight() );
     }
     xmlFreeNode( root );
-    ParmMgr.ResetRemapID();
+    ParmMgr.ResetRemapID( lastreset );
 }
 
 //==== Encode XML ====//
@@ -301,6 +296,14 @@ void XSec::GetBasis( double t, Matrix4d &basis )
 // Given a position along a curve t, and a desired surfce angle theta, calculate
 // the tangent and normal unit vectors that will be required by the surface
 // skinning algorithm.
+
+// TODO: XSec::GetAngStrCrv and XSec::GetTanNormVec should be refactored
+// such that the core math performed by each is isolated (like GetTanNormVec) and they
+// could be unit tested to behave as perfect inverses of one another.
+//
+// Currently, they appear to give wrong results in cases with nonzero
+// theta and phi.
+
 void XSec::GetTanNormVec( double t, double theta, double phi, vec3d &tangent, vec3d &normal )
 {
     Matrix4d basis;
@@ -315,6 +318,7 @@ void XSec::GetTanNormVec( double t, double theta, double phi, vec3d &tangent, ve
     // Rotate basis to specified slope.
     rmat.rotate( theta, updir );
     basis.postMult( rmat.data() );
+    rmat.loadIdentity();
     rmat.rotate( phi, wdir );
     basis.postMult( rmat.data() );
 
@@ -361,9 +365,8 @@ void XSec::GetTanNormCrv( const vector< double > &ts, const vector< double > &th
 
     // Parameters that define the XSecCurve
     vector< double > crvts;
-    // Work around non-constness of get_pmap.
-    piecewise_curve_type crv = m_TransformedCurve.GetCurve();
-    crv.get_pmap( crvts );
+
+    GetCurve().GetCurve().get_pmap( crvts );
 
     int ntcrv = crvts.size();
 
@@ -460,11 +463,14 @@ void XSec::GetAngStrCrv( double t, int irib,
     // Rotate basis to specified slope.
     rmat.rotate( thetaL, updir );
     basisL.postMult( rmat.data() );
+    rmat.loadIdentity();
     rmat.rotate( phiL, wdir );
     basisL.postMult( rmat.data() );
 
+    rmat.loadIdentity();
     rmat.rotate( thetaR, updir );
     basisR.postMult( rmat.data() );
+    rmat.loadIdentity();
     rmat.rotate( phiR, wdir );
     basisR.postMult( rmat.data() );
 
@@ -1646,11 +1652,12 @@ FuseXSec::FuseXSec( XSecCurve *xsc ) : SkinXSec( xsc)
     m_YRotate.Init( "YRotate", m_GroupName, this,  0.0, -180.0, 180.0 );
     m_YRotate.SetDescript( "Rotation about y-axis of cross section" );
     m_ZRotate.Init( "ZRotate", m_GroupName, this,  0.0, -180.0, 180.0 );
-    m_YRotate.SetDescript( "Rotation about z-axis of cross section" );
+    m_ZRotate.SetDescript( "Rotation about z-axis of cross section" );
 
-    m_Spin.Init( "Spin", m_GroupName, this, 0.0, -180.0, 180.0 );
+    m_Spin.Init( "Spin", m_GroupName, this, 0.0, -1.0, 1.0 );
+    m_Spin.SetDescript( "Shift curve parameterization" );
 
-    m_RefLength.Init( "RefLength", m_GroupName, this, 1.0, 1e-8, 1e12, false );
+    m_RefLength.Init( "RefLength", m_GroupName, this, 1.0, 1e-8, 1e12 );
 
     SetV2DefaultBehavior();
 }
@@ -1671,10 +1678,8 @@ void FuseXSec::Update()
 
     //==== Apply Transform ====//
     m_TransformedCurve = baseCurve;
-    if ( fabs( m_Spin() ) > DBL_EPSILON )
-    {
-        std::cerr << "XSec spin not implemented." << std::endl;
-    }
+
+    m_TransformedCurve.Spin01( m_Spin() );
 
     m_Transform.loadIdentity();
 
@@ -1690,7 +1695,7 @@ void FuseXSec::Update()
 //==== Set Ref Length ====//
 void FuseXSec::SetRefLength( double len )
 {
-    if ( fabs( len - m_RefLenVal ) < DBL_EPSILON )
+    if ( std::abs( len - m_RefLenVal ) < DBL_EPSILON )
     {
         return;
     }
@@ -1873,7 +1878,7 @@ StackXSec::StackXSec( XSecCurve *xsc ) : SkinXSec( xsc)
     m_YRotate.Init( "YRotate", m_GroupName, this,  0.0, -180.0, 180.0 );
     m_YRotate.SetDescript( "Rotation about y-axis of cross section" );
     m_ZRotate.Init( "ZRotate", m_GroupName, this,  0.0, -180.0, 180.0 );
-    m_YRotate.SetDescript( "Rotation about z-axis of cross section" );
+    m_ZRotate.SetDescript( "Rotation about z-axis of cross section" );
 
     m_XCenterRot.Init( "m_XCenterRot", m_GroupName, this,  0.0, -1.0e12, 1.0e12 );
     m_XCenterRot.SetDescript( "X Center Of Rotation" );
@@ -1881,6 +1886,9 @@ StackXSec::StackXSec( XSecCurve *xsc ) : SkinXSec( xsc)
     m_YCenterRot.SetDescript( "Y Center Of Rotation" );
     m_ZCenterRot.Init( "m_ZCenterRot", m_GroupName, this,  0.0, -1.0e12, 1.0e12 );
     m_ZCenterRot.SetDescript( "Z Center Of Rotation" );
+
+    m_Spin.Init( "Spin", m_GroupName, this, 0.0, -1.0, 1.0 );
+    m_Spin.SetDescript( "Shift curve parameterization" );
 
     SetV2DefaultBehavior();
 
@@ -1914,6 +1922,8 @@ void StackXSec::Update()
 
     //==== Apply Transform ====//
     m_TransformedCurve = baseCurve;
+
+    m_TransformedCurve.Spin01( m_Spin() );
 
     m_Transform.loadIdentity();
 

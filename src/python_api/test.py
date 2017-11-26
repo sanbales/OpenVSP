@@ -1,10 +1,11 @@
 """Test the OpenVSP Python Interface."""
 from __future__ import print_function
-
 import vsp_g as vsp
+
 
 stdout = vsp.cvar.cstdout
 errorMgr = vsp.ErrorMgrSingleton_getInstance()
+
 
 # ==== Test Enums ==== #
 print("SET_ALL = ", vsp.SET_ALL)

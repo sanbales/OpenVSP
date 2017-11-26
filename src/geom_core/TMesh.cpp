@@ -18,19 +18,13 @@
 #endif
 
 #include "TMesh.h"
-#include "BndBox.h"
 
 #include "Tritri.h"
-#include "Defines.h"
 
 #include "triangle.h"
-#include "Util.h"
 #include "Geom.h"
 #include "SubSurfaceMgr.h"
-
-#include <map>
-#include <set>
-#include <algorithm>
+#include "PntNodeMerge.h"
 
 
 //===============================================//
@@ -165,10 +159,9 @@ TMesh* TEdge::GetParTMesh()
 TetraMassProp::TetraMassProp( string id, double denIn, vec3d& p0, vec3d& p1, vec3d& p2, vec3d& p3 )
 {
     m_CompId = id;
-    m_PointMassFlag = false;
     m_Density = denIn;
 
-    m_v0 = p0;
+    m_v0 = vec3d( 0, 0, 0 );
     m_v1 = p1 - p0;
     m_v2 = p2 - p0;
     m_v3 = p3 - p0;
@@ -177,7 +170,7 @@ TetraMassProp::TetraMassProp( string id, double denIn, vec3d& p0, vec3d& p1, vec
     m_CG = ( m_CG * 0.25 ) + p0;
 
     m_Vol  = tetra_volume( m_v1, m_v2, m_v3 );
-    m_Mass = m_Density * fabs( m_Vol );
+    m_Mass = m_Density * std::abs( m_Vol );
 
     double Ix = m_Mass / 10.0 * ( m_v1.x() * m_v1.x() + m_v2.x() * m_v2.x() + m_v3.x() * m_v3.x() +
                                   m_v1.x() * m_v2.x() + m_v1.x() * m_v3.x() + m_v2.x() * m_v3.x() );
@@ -207,7 +200,6 @@ TetraMassProp::TetraMassProp( string id, double denIn, vec3d& p0, vec3d& p1, vec
 void TetraMassProp::SetPointMass( double massIn, vec3d& pos )
 {
     m_CompId = "NONE";
-    m_PointMassFlag = true;
     m_Density = 0.0;
     m_CG = pos;
     m_Vol  = 0.0;
@@ -282,7 +274,7 @@ DegenGeomTetraMassProp::DegenGeomTetraMassProp( string id, vec3d& p0, vec3d& p1,
 {
     m_CompId = id;
 
-    m_v0 = p0;
+    m_v0 = vec3d( 0, 0, 0 );
     m_v1 = p1 - p0;
     m_v2 = p2 - p0;
     m_v3 = p3 - p0;
@@ -290,7 +282,7 @@ DegenGeomTetraMassProp::DegenGeomTetraMassProp( string id, vec3d& p0, vec3d& p1,
     m_CG = m_v1 + m_v2 + m_v3;
     m_CG = ( m_CG * 0.25 ) + p0;
 
-    m_Vol  = fabs( tetra_volume( m_v1, m_v2, m_v3 ) );
+    m_Vol  = std::abs( tetra_volume( m_v1, m_v2, m_v3 ) );
 
     double Ix = m_Vol / 10.0 * ( m_v1.x() * m_v1.x() + m_v2.x() * m_v2.x() + m_v3.x() * m_v3.x() +
                                  m_v1.x() * m_v2.x() + m_v1.x() * m_v3.x() + m_v2.x() * m_v3.x() );
@@ -704,7 +696,7 @@ void TMesh::MergeNonClosed( TMesh* tm )
                 break;
             }
         }
-        if ( match_flag == false )
+        if ( ! match_flag )
         {
             break;
         }
@@ -712,17 +704,7 @@ void TMesh::MergeNonClosed( TMesh* tm )
 
     if ( match_flag )
     {
-        for ( int t = 0 ; t < ( int )tm->m_TVec.size() ; t++ )
-        {
-            TTri* tri = tm->m_TVec[t];
-            AddTri( tri );
-            m_TVec.back()->m_InvalidFlag = 0;
-        }
-        for ( int i = 0 ; i < ( int )m_NonClosedTriVec.size() ; i++ )
-        {
-            m_NonClosedTriVec[i]->m_InvalidFlag = 0;
-        }
-        m_NonClosedTriVec.clear();
+        MergeTMeshes( tm );
 
         CheckIfClosed();                // Recheck For NonClosed Tris
 
@@ -730,9 +712,35 @@ void TMesh::MergeNonClosed( TMesh* tm )
     }
 }
 
+void TMesh::MergeTMeshes( TMesh* tm )
+{
+    for ( int t = 0 ; t < ( int )tm->m_TVec.size() ; t++ )
+    {
+        TTri* tri = tm->m_TVec[t];
+        AddTri( tri );
+        m_TVec.back()->m_InvalidFlag = 0;
+    }
+
+    for ( int i = 0 ; i < ( int )m_NonClosedTriVec.size() ; i++ )
+    {
+        m_NonClosedTriVec[i]->m_InvalidFlag = 0;
+    }
+    m_NonClosedTriVec.clear();
+}
+
 void TMesh::Intersect( TMesh* tm, bool UWFlag )
 {
     m_TBox.Intersect( &tm->m_TBox, UWFlag );
+}
+
+bool TMesh::CheckIntersect( TMesh* tm )
+{
+    return m_TBox.CheckIntersect( &tm->m_TBox );
+}
+
+double TMesh::MinDistance( TMesh* tm, double curr_min_dist )
+{
+    return m_TBox.MinDistance( &tm->m_TBox, curr_min_dist );
 }
 
 void TMesh::Split()
@@ -790,11 +798,6 @@ void TMesh::DeterIntExtTri( TTri* tri, vector< TMesh* >& meshVec )
     }
 }
 
-int TMesh::DeterIntExtPnt( const vec3d& pnt, vector< TMesh* >& meshVec, TMesh* ignoreMesh ) // 1 Interior 0 Exterior
-{
-    return 0;
-}
-
 void TMesh::MassDeterIntExt( vector< TMesh* >& meshVec )
 {
     for ( int t = 0 ; t < ( int )m_TVec.size() ; t++ )
@@ -847,12 +850,78 @@ void TMesh::MassDeterIntExtTri( TTri* tri, vector< TMesh* >& meshVec )
     }
 }
 
+void TMesh::WaveDeterIntExt( vector< TMesh* >& meshVec )
+{
+    for ( int t = 0 ; t < ( int )m_TVec.size() ; t++ )
+    {
+        TTri* tri = m_TVec[t];
+
+        //==== Do Interior Tris ====//
+        if ( tri->m_SplitVec.size() )
+        {
+            tri->m_InteriorFlag = 1;
+            for ( int s = 0 ; s < ( int )tri->m_SplitVec.size() ; s++ )
+            {
+                WaveDeterIntExtTri( tri->m_SplitVec[s], meshVec );
+            }
+        }
+        else
+        {
+            WaveDeterIntExtTri( tri, meshVec );
+        }
+    }
+}
+
+void TMesh::WaveDeterIntExtTri( TTri* tri, vector< TMesh* >& meshVec )
+{
+    vec3d orig = ( tri->m_N0->m_Pnt + tri->m_N1->m_Pnt ) * 0.5;
+    orig = ( orig + tri->m_N2->m_Pnt ) * 0.5;
+    tri->m_InteriorFlag = 0;
+    int prior = -1;
+
+    vec3d dir( 1.0, 0.000001, 0.000001 );
+
+    for ( int m = 0 ; m < ( int )meshVec.size() ; m++ )
+    {
+        if ( meshVec[m] != this )
+        {
+            vector<double > tParmVec;
+            meshVec[m]->m_TBox.RayCast( orig, dir, tParmVec );
+            if ( tParmVec.size() % 2 )
+            {
+                if ( meshVec[m]->m_MassPrior > prior )
+                {
+                    tri->m_InteriorFlag = 1;
+                    tri->m_ID = meshVec[m]->m_PtrID;
+                    prior = meshVec[m]->m_MassPrior;
+                }
+            }
+        }
+    }
+}
+
 double TMesh::ComputeTheoArea()
 {
     m_TheoArea = 0;
+    m_TagTheoAreaVec.clear();
+    int ntags = SubSurfaceMgr.GetNumTags() - 1;
+    if ( ntags > 0 )
+    {
+        m_TagTheoAreaVec.resize( ntags, 0.0);
+    }
+
     for ( int t = 0 ; t < ( int )m_TVec.size() ; t++ )
     {
-        m_TheoArea += m_TVec[t]->ComputeArea();
+        double area = m_TVec[t]->ComputeArea();
+        m_TheoArea += area;
+        if ( ntags > 0 )
+        {
+            int itag = SubSurfaceMgr.GetTag(m_TVec[t]->m_Tags) - 1;
+            if ( itag >= 0 && itag < ntags )
+            {
+                m_TagTheoAreaVec[itag] += area;
+            }
+        }
     }
     return m_TheoArea;
 }
@@ -861,10 +930,20 @@ double TMesh::ComputeWetArea()
 {
     m_WetArea = 0;
     m_AreaCenter = vec3d(0,0,0);
+    m_TagWetAreaVec.clear();
+    int ntags = SubSurfaceMgr.GetNumTags() - 1;
+    if ( ntags > 0 )
+    {
+        m_TagWetAreaVec.resize( ntags, 0.0);
+    }
 
     for ( int t = 0 ; t < ( int )m_TVec.size() ; t++ )
     {
         TTri* tri = m_TVec[t];
+
+        // TMesh::SubTag guarantees that split tris have same tags as normal tris.
+        // So, just look up tag index once per tri.
+        int itag = SubSurfaceMgr.GetTag( tri->m_Tags ) - 1;
 
         //==== Do Interior Tris ====//
         if ( tri->m_SplitVec.size() )
@@ -877,6 +956,10 @@ double TMesh::ComputeWetArea()
                     m_AreaCenter = m_AreaCenter + tri->m_SplitVec[s]->ComputeCenter()*area;
                     vec3d center = tri->m_SplitVec[s]->ComputeCenter();
                     m_WetArea += area;
+                    if ( itag >= 0 && itag < ntags )
+                    {
+                        m_TagWetAreaVec[itag] += area;
+                    }
                 }
             }
         }
@@ -886,13 +969,17 @@ double TMesh::ComputeWetArea()
             m_AreaCenter = m_AreaCenter + tri->ComputeCenter()*area;
             vec3d center = tri->ComputeCenter();
             m_WetArea += tri->ComputeArea();
+            if ( itag >= 0 && itag < ntags )
+            {
+                m_TagWetAreaVec[itag] += area;
+            }
         }
     }
     m_AreaCenter = m_AreaCenter/m_WetArea;
     return m_WetArea;
 }
 
-double TMesh::ComputeAwaveArea()
+double TMesh::ComputeWaveDragArea( const std::map< string, int > &idmap )
 {
     m_WetArea = 0;
     m_AreaCenter = vec3d(0,0,0);
@@ -902,23 +989,36 @@ double TMesh::ComputeAwaveArea()
         TTri* tri = m_TVec[t];
 
         //==== Do Interior Tris ====//
+        // For WaveDragArea, they should all be split tris by definition.
         if ( tri->m_SplitVec.size() )
         {
             for ( int s = 0 ; s < ( int )tri->m_SplitVec.size() ; s++ )
             {
                 if ( !tri->m_SplitVec[s]->m_InteriorFlag )
                 {
-                    double area = tri->m_SplitVec[s]->ComputeAwArea();
+                    double area = tri->m_SplitVec[s]->ComputeYZArea();
                     m_AreaCenter = m_AreaCenter + tri->m_SplitVec[s]->ComputeCenter()*area;
                     m_WetArea += area;
+
+                    std::map<string, int>::const_iterator it = idmap.find( tri->m_SplitVec[s]->m_ID );
+                    if ( it != idmap.end() )
+                    {
+                        m_CompAreaVec[ it->second ] += area;
+                    }
                 }
             }
         }
         else if ( !tri->m_InteriorFlag )
         {
-            double area = tri->ComputeAwArea();
+            double area = tri->ComputeYZArea();
             m_AreaCenter = m_AreaCenter + tri->ComputeCenter()*area;
             m_WetArea += area;
+
+            std::map<string, int>::const_iterator it = idmap.find( tri->m_ID );
+            if ( it != idmap.end() )
+            {
+                m_CompAreaVec[ it->second ] += area;
+            }
         }
     }
     m_AreaCenter = m_AreaCenter/m_WetArea;
@@ -1084,6 +1184,8 @@ void TMesh::AddUWTri( const vec3d & uw0, const vec3d & uw1, const vec3d & uw2, c
 
 void TMesh::LoadBndBox()
 {
+    m_TBox.Reset();
+
     for ( int i = 0 ; i < ( int )m_TVec.size() ; i++ )
     {
         m_TBox.AddTri( m_TVec[i] );
@@ -1366,13 +1468,16 @@ bool TTri::MatchEdge( TNode* n0, TNode* n1, TNode* nA, TNode* nB, double tol )
     return false;
 }
 
+// was 1e-5
+#define ON_EDGE_TOL 1e-5
+
 //==== Split A Triangle Along Edges in ISectEdges Vec =====//
 void TTri::SplitTri()
 {
     int i, j;
-    double onEdgeTol = 0.00001;
-    double uvMinTol  = 0.001;
-    double uvMaxTol  = 0.999;
+    double onEdgeTol = ON_EDGE_TOL; // was 1e-5
+    double uvMinTol  = 1e-3; // was 1e-3
+    double uvMaxTol  = 1.0 - uvMinTol;
 
     //==== No Need To Split ====//
     if ( m_ISectEdgeVec.size() == 0 )
@@ -1391,6 +1496,7 @@ void TTri::SplitTri()
             if ( DupEdge( m_ISectEdgeVec[i], noDupVec[j], onEdgeTol ) )
             {
                 dupFlag = 1;
+                break;
             }
         }
 
@@ -1892,10 +1998,10 @@ void TTri::TriangulateSplit( int flattenAxis )
         for ( i = 0 ; i < in.numberofpoints ; i++ )
             for ( j = i + 1 ; j < in.numberofpoints ; j++ )
             {
-                double del = fabs( in.pointlist[i * 2] - in.pointlist[j * 2] ) +
-                             fabs( in.pointlist[i * 2 + 1] - in.pointlist[j * 2 + 1] );
+                double del = std::abs( in.pointlist[i * 2] - in.pointlist[j * 2] ) +
+                             std::abs( in.pointlist[i * 2 + 1] - in.pointlist[j * 2 + 1] );
 
-                if ( del < 0.0000001 )
+                if ( del < 1e-8 )
                 {
                     dupFlag = 1;
                 }
@@ -1980,7 +2086,7 @@ void TTri::TriangulateSplit( int flattenAxis )
     }
 }
 
-int TTri::OnEdge( vec3d & p, TEdge* e, double onEdgeTol, double * t )
+int TTri::OnEdge( const vec3d & p, TEdge* e, double onEdgeTol, double * t )
 {
     //==== Make Sure Not Duplicate Points ====//
     if ( dist( p, e->m_N0->m_Pnt ) < onEdgeTol )
@@ -2206,9 +2312,113 @@ void  TBndBox::AddLeafNodes( vector< TBndBox* > & leafVec )
     }
 }
 
+bool TBndBox::CheckIntersect( TBndBox* iBox  )
+{
+    int i, j;
+
+    //==== Compare Bounding Boxes ====//
+    if ( !Compare( m_Box, iBox->m_Box ) )
+    {
+        return false;
+    }
+
+    //==== Recursively Check Sub Boxes ====//
+    if ( m_SBoxVec[0] )
+    {
+        for ( i = 0 ; i < 8 ; i++ )
+        {
+           if ( iBox->CheckIntersect( m_SBoxVec[i] ) )
+           return true;
+        }
+    }
+    else if ( iBox->m_SBoxVec[0] )
+    {
+        for ( i = 0 ; i < 8 ; i++ )
+        {
+            if ( iBox->m_SBoxVec[i]->CheckIntersect( this ) )
+                return true;
+        }
+    }
+    else
+    {
+        int coplanarFlag;
+        vec3d e0;
+        vec3d e1;
+
+        //==== Check All Tris In One Box Against The Other ====//
+        for ( i = 0 ; i < ( int )m_TriVec.size() ; i++ )
+        {
+            TTri* t0 = m_TriVec[i];
+            for ( j = 0 ; j < ( int )iBox->m_TriVec.size() ; j++ )
+            {
+                TTri* t1 = iBox->m_TriVec[j];
+
+                int iflag = tri_tri_intersect_with_isectline(
+                                t0->m_N0->m_Pnt.v, t0->m_N1->m_Pnt.v, t0->m_N2->m_Pnt.v,
+                                t1->m_N0->m_Pnt.v, t1->m_N1->m_Pnt.v, t1->m_N2->m_Pnt.v,
+                                &coplanarFlag, e0.v, e1.v );
+
+                if ( iflag && !coplanarFlag )
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+double TBndBox::MinDistance( TBndBox* iBox, double curr_min_dist )
+{
+    int i, j;
+
+    //==== Compare Bounding Boxes ====//
+    if ( !Compare( m_Box, iBox->m_Box, curr_min_dist ) )
+    {
+        return curr_min_dist;
+    }
+
+    //==== Recursively Check Sub Boxes ====//
+    if ( m_SBoxVec[0] )
+    {
+        for ( i = 0 ; i < 8 ; i++ )
+        {
+            curr_min_dist = iBox->MinDistance( m_SBoxVec[i], curr_min_dist );
+        }
+    }
+    else if ( iBox->m_SBoxVec[0] )
+    {
+        for ( i = 0 ; i < 8 ; i++ )
+        {
+            curr_min_dist = iBox->m_SBoxVec[i]->MinDistance( this, curr_min_dist );
+        }
+    }
+    //==== Check All Points Against Other Points ====//
+    else
+    {
+        for ( i = 0 ; i < ( int )m_TriVec.size() ; i++ )
+        {
+            TTri* t0 = m_TriVec[i];
+            for ( j = 0 ; j < ( int )iBox->m_TriVec.size() ; j++ )
+            {
+
+                TTri* t1 = iBox->m_TriVec[j];
+                double d = tri_tri_min_dist( t0->m_N0->m_Pnt, t0->m_N1->m_Pnt, t0->m_N2->m_Pnt,
+                                             t1->m_N0->m_Pnt, t1->m_N1->m_Pnt, t1->m_N2->m_Pnt);
+
+                if ( d < curr_min_dist )
+                    curr_min_dist = d;
+            }
+        }
+    }
+
+    return curr_min_dist;
+}
+
+
 void TBndBox::Intersect( TBndBox* iBox, bool UWFlag )
 {
     int i;
+
+    double tol = 1e-6; // was 1e-6
 
     if ( !Compare( m_Box, iBox->m_Box ) )
     {
@@ -2231,7 +2441,6 @@ void TBndBox::Intersect( TBndBox* iBox, bool UWFlag )
     }
     else
     {
-        int i, j;
         int coplanarFlag;
         vec3d e0;
         vec3d e1;
@@ -2241,7 +2450,7 @@ void TBndBox::Intersect( TBndBox* iBox, bool UWFlag )
         for ( i = 0 ; i < ( int )m_TriVec.size() ; i++ )
         {
             TTri* t0 = m_TriVec[i];
-            for ( j = 0 ; j < ( int )iBox->m_TriVec.size() ; j++ )
+            for ( int j = 0 ; j < ( int )iBox->m_TriVec.size() ; j++ )
             {
                 TTri* t1 = iBox->m_TriVec[j];
 
@@ -2255,7 +2464,7 @@ void TBndBox::Intersect( TBndBox* iBox, bool UWFlag )
                 {
                     if ( UWFlag )
                     {
-                        if ( dist( e0, e1 ) > 0.000001 )
+                        if ( dist( e0, e1 ) > tol ) // was 1e-6
                         {
                             // Figure out with tri has xyz info
                             TTri* tri;
@@ -2325,7 +2534,7 @@ void TBndBox::Intersect( TBndBox* iBox, bool UWFlag )
                         ie1->m_N1->m_Pnt = e1;
 
 
-                        if ( dist( e0, e1 ) > 0.000001 )
+                        if ( dist( e0, e1 ) > tol )
                         {
                             t0->m_ISectEdgeVec.push_back( ie0 );
                             t1->m_ISectEdgeVec.push_back( ie1 );
@@ -2390,7 +2599,7 @@ void  TBndBox::NumCrossXRay( vec3d & orig, vector<double> & tParmVec )
             int dupFlag = 0;
             for ( int j = 0 ; j < ( int )tParmVec.size() ; j++ )
             {
-                if ( fabs( tparm - tParmVec[j] ) < 0.0000001 )
+                if ( std::abs( tparm - tParmVec[j] ) < 0.0000001 )
                 {
                     dupFlag = 1;
                     break;
@@ -2441,7 +2650,7 @@ void  TBndBox::RayCast( vec3d & orig, vec3d & dir, vector<double> & tParmVec )
             int dupFlag = 0;
             for ( int j = 0 ; j < ( int )tParmVec.size() ; j++ )
             {
-                if ( fabs( tparm - tParmVec[j] ) < 0.0000001 )
+                if ( std::abs( tparm - tParmVec[j] ) < 0.0000001 )
                 {
                     dupFlag = 1;
                     break;
@@ -2492,113 +2701,6 @@ void TBndBox::SegIntersect( vec3d & p0, vec3d & p1, vector< vec3d > & ipntVec )
         }
     }
 
-}
-
-
-//===============================================//
-//===============================================//
-//===============================================//
-//===============================================//
-//                  NBndBox
-//===============================================//
-//===============================================//
-//===============================================//
-//===============================================//
-NBndBox::NBndBox()
-{
-    for ( int i = 0 ; i < 8 ; i++ )
-    {
-        m_SBoxVec[i] = 0;
-    }
-}
-
-NBndBox::~NBndBox()
-{
-    for ( int i = 0 ; i < 8 ; i++ )
-    {
-        delete m_SBoxVec[i];
-    }
-}
-
-//==== Create Oct Tree of Overlaping BndBoxes ====//
-void NBndBox::SplitBox( double maxSize )
-{
-    int i;
-    if ( m_NodeVec.size() > 64 && m_Box.DiagDist() > maxSize  )
-    {
-        //==== Find Split Points ====//
-        double hx = 0.5 * ( m_Box.GetMax( 0 ) + m_Box.GetMin( 0 ) );
-        double hy = 0.5 * ( m_Box.GetMax( 1 ) + m_Box.GetMin( 1 ) );
-        double hz = 0.5 * ( m_Box.GetMax( 2 ) + m_Box.GetMin( 2 ) );
-
-        for ( i = 0 ; i < 8 ; i++ )
-        {
-            m_SBoxVec[i] = new NBndBox();
-        }
-
-        for ( i = 0 ; i < ( int )m_NodeVec.size() ; i++ )
-        {
-            int cnt = 0;
-            if ( m_NodeVec[i]->m_Pnt.x() > hx )
-            {
-                cnt += 1;
-            }
-            if ( m_NodeVec[i]->m_Pnt.y() > hy )
-            {
-                cnt += 2;
-            }
-            if ( m_NodeVec[i]->m_Pnt.z() > hz )
-            {
-                cnt += 4;
-            }
-            m_SBoxVec[cnt]->AddNode( m_NodeVec[i] );
-        }
-
-        int contSplitFlag = 1;
-        /* Not Needed for Nodes ???
-                for ( i = 0 ; i < 8 ; i++ )
-                {
-                    if ( triVec.size() == sBoxVec[i]->triVec.size() )
-                    {
-                        contSplitFlag = 0;
-                        break;
-                    }
-                }
-        */
-        if ( contSplitFlag )
-        {
-            for ( i = 0 ; i < 8 ; i++ )
-            {
-                m_SBoxVec[i]->SplitBox( maxSize );
-            }
-        }
-    }
-}
-
-void NBndBox::AddNode( TNode* n )
-{
-    m_NodeVec.push_back( n );
-    m_Box.Update( n->m_Pnt );
-}
-
-void NBndBox::AddLeafNodes( vector< NBndBox* > & leafVec )
-{
-    int i;
-
-    if ( m_SBoxVec[0] )     // Keep Moving Down
-    {
-        for ( i = 0 ; i < 8 ; i++ )
-        {
-            m_SBoxVec[i]->AddLeafNodes( leafVec );
-        }
-    }
-    else
-    {
-        if ( m_NodeVec.size() )
-        {
-            leafVec.push_back( this );
-        }
-    }
 }
 
 //===============================================//
@@ -3002,58 +3104,27 @@ void TMesh::BuildNodeMaps()
     // This method builds the map between a node and its aliases and a map between
     // each node to its master node
 
-    int i, n;
-
-    map< TNode*, list<TNode*> >::iterator mi;
+    int n;
 
     double tol = 1.0e-12;
-    double sqtol = sqrt( tol );
+
+    //==== Build Map ====//
+    PntNodeCloud pnCloud;
+    pnCloud.ReserveMorePntNodes( m_NVec.size() );
 
     for ( n = 0 ; n < ( int )m_NVec.size() ; n++ )
     {
         m_NVec[n]->m_MergeVec.clear();
+        pnCloud.AddPntNode( m_NVec[n]->m_Pnt );
     }
 
-    NBndBox nBox;
-    for ( n = 0 ; n < ( int )m_NVec.size() ; n++ )
-    {
-        nBox.AddNode( m_NVec[n] );
-    }
-    nBox.SplitBox( sqrt( tol ) );
-
-    //==== Find All Leaves of Oct Tree ====//
-    vector< NBndBox* > leafVec;
-    nBox.AddLeafNodes( leafVec );
-
-    for ( i = 0 ; i < ( int )leafVec.size() ; i++ )
-    {
-        leafVec[i]->m_Box.Expand( sqtol );
-    }
+    //==== Use NanoFlann to Find Close Points and Group ====//
+    IndexPntNodes( pnCloud, tol );
 
     for ( n = 0 ; n < ( int )m_NVec.size() ; n++ )
     {
-        if ( m_NSMMap.find( m_NVec[n] ) == m_NSMMap.end() ) // This node doesn't have a master so continue
+        if ( pnCloud.UsedNode( n ) ) // This point is a NanoFlann master.
         {
-            for ( i = 0 ; i < ( int )leafVec.size() ; i++ )
-            {
-
-                if ( leafVec[i]->m_Box.CheckPnt( m_NVec[n]->m_Pnt.x(), m_NVec[n]->m_Pnt.y(), m_NVec[n]->m_Pnt.z() ) )
-                {
-                    for ( int m = 0 ; m < ( int )leafVec[i]->m_NodeVec.size() ; m++ )
-                    {
-                        if ( m_NVec[n] != leafVec[i]->m_NodeVec[m] ) // If it is the same node skip
-                        {
-                            if ( dist_squared( m_NVec[n]->m_Pnt, leafVec[i]->m_NodeVec[m]->m_Pnt ) < tol )
-                            {
-                                m_NVec[n]->m_MergeVec.push_back( leafVec[i]->m_NodeVec[m] );
-                                m_NAMap[m_NVec[n]].push_back( leafVec[i]->m_NodeVec[m] ); // Add node m to n's list of aliases
-                                m_NSMMap[leafVec[i]->m_NodeVec[m]] = m_NVec[n]; // Set m's master to be n
-                            }
-                        }
-                    }
-                }
-            }
-
             // Set n to be its own master
             m_NSMMap[ m_NVec[n] ] = m_NVec[n];
 
@@ -3062,6 +3133,16 @@ void TMesh::BuildNodeMaps()
         }
     }
 
+    for ( int islave = 0 ; islave < ( int )m_NVec.size() ; islave++ )
+    {
+        if ( !(pnCloud.UsedNode( islave )) ) // This point is a NanoFlann slave.
+        {
+            int imaster = pnCloud.GetNodeBaseIndex( islave );
+            m_NVec[imaster]->m_MergeVec.push_back( m_NVec[islave] );
+            m_NAMap[m_NVec[imaster]].push_back( m_NVec[islave] ); // Add node islave to imaster's list of aliases
+            m_NSMMap[m_NVec[islave]] = m_NVec[imaster]; // Set islave's master to be imaster
+        }
+    }
 }
 
 void TMesh::DeleteDupNodes()
@@ -3635,16 +3716,17 @@ void TMesh::SplitAliasEdges( TTri* orig_tri, TEdge* isect_edge )
 {
     // Check to see if either of the new nodes are on the existing perimeter edges,
     // and if so add an edge to alias edges' triangle that will cause a split to occur
-    vec3d e0, e1, e0xyz, e1xyz;
+    vector < vec3d > es(2);
+    vector < vec3d > exyzs(2);
 
-    e0 = isect_edge->m_N0->GetUWPnt();
-    e1 = isect_edge->m_N1->GetUWPnt();
-    e0xyz = isect_edge->m_N0->GetXYZPnt();
-    e1xyz = isect_edge->m_N1->GetXYZPnt();
+    es[0] = isect_edge->m_N0->GetUWPnt();
+    es[1] = isect_edge->m_N1->GetUWPnt();;
+    exyzs[0] = isect_edge->m_N0->GetXYZPnt();
+    exyzs[1] = isect_edge->m_N1->GetXYZPnt();
 
     if ( orig_tri->m_PEArr[0] != NULL )
     {
-        double edgeTol = 1e-5;
+        double edgeTol = ON_EDGE_TOL;
 
         vec3d * nn;
         TEdge * orig_e = NULL;
@@ -3653,67 +3735,68 @@ void TMesh::SplitAliasEdges( TTri* orig_tri, TEdge* isect_edge )
         {
             nn = NULL;
             orig_e = orig_tri->m_PEArr[pei];
-            if ( orig_tri->OnEdge( e0, orig_e, edgeTol, &t ) == 1 )
-            {
-                nn = &e0xyz;
-            }
-            else if ( orig_tri->OnEdge( e1, orig_e, edgeTol, &t ) == 1 )
-            {
-                nn = &e1xyz;
-            }
 
-            if ( nn && ( t > 0 && t < 1 ) )
+            for( int ei = 0; ei < 2; ei++ )
             {
-                // Get alias vector
-                TEdge* master = m_ESMMap[orig_e];
-                vector<TEdge*> a_edges = m_EAMap[ master ];
 
-                a_edges.push_back( master );
-                a_edges.erase( find( a_edges.begin(), a_edges.end(), orig_e ) );
-                // Get vector of tris
-                vector<TTri*> a_tris;
-                vector<TEdge*>::iterator vit; //vector iterator
-                for ( vit = a_edges.begin(); vit != a_edges.end() ; vit++ )
+                if ( orig_tri->OnEdge( es[ei], orig_e, edgeTol, &t ) == 1 )
                 {
-                    TEdge* e = *vit;
-                    a_tris.push_back( e->GetParTri() );
-                }
+                    nn = &exyzs[ei];
 
-                // Loop over each tri and split appropriate edge
-                for ( int ti = 0; ti < ( int )a_tris.size(); ti++ )
-                {
-                    // Compute UW of xyz point on alias triangle
-                    TTri* ta = a_tris[ti]; // alias triangle
-                    if ( !ta )
+                    if ( t > 0.0 && t < 1.0 )
                     {
-                        printf( "Warning: Edge is missing parent triangle\n" );
-                        continue;
-                    }
+                        // Get alias vector
+                        TEdge *master = m_ESMMap[orig_e];
+                        vector<TEdge *> a_edges = m_EAMap[master];
 
-                    TEdge* ea = a_edges[ti]; // alias edge
+                        a_edges.push_back(master);
+                        a_edges.erase(find(a_edges.begin(), a_edges.end(), orig_e));
+                        // Get vector of tris
+                        vector<TTri *> a_tris;
+                        vector<TEdge *>::iterator vit; //vector iterator
+                        for (vit = a_edges.begin(); vit != a_edges.end(); vit++)
+                        {
+                            TEdge *e = *vit;
+                            a_tris.push_back(e->GetParTri());
+                        }
 
-                    vec3d uwn;
-                    if ( m_NSMMap[orig_e->m_N0] == m_NSMMap[ea->m_N0] ) // Make sure edges are aligned the same way for the parametric line parameter
-                    {
-                        uwn = point_on_line( ea->m_N0->GetUWPnt(), ea->m_N1->GetUWPnt(), t );
-                    }
-                    else
-                    {
-                        uwn = point_on_line( ea->m_N1->GetUWPnt(), ea->m_N0->GetUWPnt(), t );
-                    }
+                        // Loop over each tri and split appropriate edge
+                        for (int ti = 0; ti < (int) a_tris.size(); ti++)
+                        {
+                            // Compute UW of xyz point on alias triangle
+                            TTri *ta = a_tris[ti]; // alias triangle
+                            if (!ta)
+                            {
+                                printf("Warning: Edge is missing parent triangle\n");
+                                continue;
+                            }
 
-                    // Create Fake Edge
-                    TEdge* n_edge = new TEdge();
-                    n_edge->m_N0 = new TNode();
-                    n_edge->m_N1 = new TNode();
-                    n_edge->SetParTri( ta );
-                    n_edge->m_N0->SetUWPnt( uwn );
-                    n_edge->m_N0->SetXYZPnt( *nn );
-                    n_edge->m_N0->MakePntUW();
-                    n_edge->m_N1->SetUWPnt( ea->m_N1->GetUWPnt() );
-                    n_edge->m_N1->SetXYZPnt( ea->m_N1->GetXYZPnt() );
-                    n_edge->m_N1->MakePntUW();
-                    ta->m_ISectEdgeVec.push_back( n_edge );
+                            TEdge *ea = a_edges[ti]; // alias edge
+
+                            vec3d uwn;
+                            if (m_NSMMap[orig_e->m_N0] == m_NSMMap[ea->m_N0]) // Make sure edges are aligned the same way for the parametric line parameter
+                            {
+                                uwn = point_on_line(ea->m_N0->GetUWPnt(), ea->m_N1->GetUWPnt(), t);
+                            }
+                            else
+                            {
+                                uwn = point_on_line(ea->m_N1->GetUWPnt(), ea->m_N0->GetUWPnt(), t);
+                            }
+
+                            // Create Fake Edge
+                            TEdge *n_edge = new TEdge();
+                            n_edge->m_N0 = new TNode();
+                            n_edge->m_N1 = new TNode();
+                            n_edge->SetParTri(ta);
+                            n_edge->m_N0->SetUWPnt(uwn);
+                            n_edge->m_N0->SetXYZPnt(*nn);
+                            n_edge->m_N0->MakePntUW();
+                            n_edge->m_N1->SetUWPnt(ea->m_N1->GetUWPnt());
+                            n_edge->m_N1->SetXYZPnt(ea->m_N1->GetXYZPnt());
+                            n_edge->m_N1->MakePntUW();
+                            ta->m_ISectEdgeVec.push_back(n_edge);
+                        }
+                    }
                 }
             }
         }

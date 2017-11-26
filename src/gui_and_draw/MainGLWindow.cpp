@@ -15,31 +15,23 @@
 #include "Lighting.h"
 #include "Image.h"
 #include "Texture2D.h"
-#include "TextureMgr.h"
 #include "Entity.h"
 #include "Ruler.h"
 #include "GraphicEngine.h"
-#include "ScreenMgr.h"
 #include "ManageLabelScreen.h"
 #include "ManageLightingScreen.h"
 #include "ManageGeomScreen.h"
 #include "ManageCORScreen.h"
 #include "FitModelScreen.h"
-#include "Common.h"
 #include "GraphicSingletons.h"
 #include "Selectable.h"
 #include "SelectedPnt.h"
 #include "SelectedLoc.h"
-#include "Material.h"
 #include "ClippingScreen.h"
 #include "Clipping.h"
-#include "BndBox.h"
 #include "ManageViewScreen.h"
-
-#define PRECISION_PAN_SPEED 0.005f
-#define PAN_SPEED 0.025f
-#define PRECISION_ZOOM_SPEED 0.00005f
-#define ZOOM_SPEED 0.00025f
+#include "WaveDragScreen.h"
+#include "VSPAEROScreen.h"
 
 #pragma warning(disable:4244)
 
@@ -62,7 +54,6 @@ VspGlWindow::VspGlWindow( int x, int y, int w, int h, ScreenMgr * mgr, DrawObj::
     m_GEngine->getDisplay()->setDisplayLayout( 1, 1 );
     m_GEngine->getDisplay()->selectViewport( 0 );
 
-    m_LightAmb = m_LightSpec = m_LightDiff = 0.5f;
     m_mouse_x = m_mouse_y = 0xFFFFFFF;
 
     m_initialized = false;
@@ -332,6 +323,22 @@ void VspGlWindow::update()
             clipScreen->LoadDrawObjs( drawObjs );
         }
 
+        // Load Render Objects from WDSrceen ( Wave Drag Tool)
+        WaveDragScreen * WDScreen = dynamic_cast< WaveDragScreen* >
+            ( m_ScreenMgr->GetScreen( ScreenMgr::VSP_WAVEDRAG_SCREEN ) );
+        if( WDScreen )
+        {
+            WDScreen->LoadDrawObjs( drawObjs );
+        }
+
+        // Load Render Objects for VSP AERO Screen
+        VSPAEROScreen * AeroScreen = dynamic_cast < VSPAEROScreen* >
+            ( m_ScreenMgr->GetScreen( ScreenMgr::VSP_VSPAERO_SCREEN ) );
+        if ( AeroScreen )
+        {
+            AeroScreen->LoadDrawObjs( drawObjs );
+        }
+
         // Load Objects to Renderer.
         _update( drawObjs );
 
@@ -547,6 +554,94 @@ void VspGlWindow::_update( std::vector<DrawObj *> objects )
                 if( objects[i]->m_GeomChanged )
                 {
                     _loadTrisData( eObj, objects[i] );
+                }
+            }
+            break;
+
+        case DrawObj::VSP_HIDDEN_QUADS:
+            if( id == 0xFFFFFFFF )
+            {
+                m_GEngine->getScene()->createObject( Common::VSP_OBJECT_ENTITY, &id );
+
+                ID idInfo;
+                idInfo.bufferID = id;
+                idInfo.geomID = objects[i]->m_GeomID;
+                m_ids.push_back( idInfo );
+            }
+            eObj = dynamic_cast<VSPGraphic::Entity*> ( m_GEngine->getScene()->getObject( id ) );
+            if( eObj )
+            {
+                eObj->setVisibility( objects[i]->m_Visible );
+                eObj->setPrimType( Common::VSP_QUADS );
+                eObj->setRenderStyle( Common::VSP_DRAW_WIRE_FRAME_SOLID );
+                eObj->setLineColor( red, green, blue );
+                eObj->setLineWidth( lineWidth );
+
+                eObj->setMaterial( objects[i]->m_MaterialInfo.Ambient, objects[i]->m_MaterialInfo.Diffuse,
+                    objects[i]->m_MaterialInfo.Specular, objects[i]->m_MaterialInfo.Emission,
+                    objects[i]->m_MaterialInfo.Shininess );
+
+                if( objects[i]->m_GeomChanged )
+                {
+                    _loadQuadsData( eObj, objects[i] );
+                }
+            }
+            break;
+
+        case DrawObj::VSP_SHADED_QUADS:
+            if ( id == 0xFFFFFFFF )
+            {
+                m_GEngine->getScene()->createObject( Common::VSP_OBJECT_ENTITY, &id );
+
+                ID idInfo;
+                idInfo.bufferID = id;
+                idInfo.geomID = objects[i]->m_GeomID;
+                m_ids.push_back( idInfo );
+            }
+            eObj = dynamic_cast<VSPGraphic::Entity*> ( m_GEngine->getScene()->getObject( id ) );
+            if ( eObj )
+            {
+                eObj->setVisibility( objects[i]->m_Visible );
+                eObj->setPrimType( Common::VSP_QUADS );
+                eObj->setRenderStyle( Common::VSP_DRAW_MESH_SHADED );
+
+                eObj->setMaterial( objects[i]->m_MaterialInfo.Ambient, objects[i]->m_MaterialInfo.Diffuse,
+                                   objects[i]->m_MaterialInfo.Specular, objects[i]->m_MaterialInfo.Emission,
+                                   objects[i]->m_MaterialInfo.Shininess );
+
+                if ( objects[i]->m_GeomChanged )
+                {
+                    _loadQuadsData( eObj, objects[i] );
+                }
+            }
+            break;
+
+        case DrawObj::VSP_WIRE_QUADS:
+            if ( id == 0xFFFFFFFF )
+            {
+                m_GEngine->getScene()->createObject( Common::VSP_OBJECT_ENTITY, &id );
+
+                ID idInfo;
+                idInfo.bufferID = id;
+                idInfo.geomID = objects[i]->m_GeomID;
+                m_ids.push_back( idInfo );
+            }
+            eObj = dynamic_cast<VSPGraphic::Entity*> ( m_GEngine->getScene()->getObject( id ) );
+            if ( eObj )
+            {
+                eObj->setVisibility( objects[i]->m_Visible );
+                eObj->setPrimType( Common::VSP_QUADS );
+                eObj->setRenderStyle( Common::VSP_DRAW_WIRE_FRAME );
+                eObj->setLineColor( red, green, blue );
+                eObj->setLineWidth( lineWidth );
+
+                eObj->setMaterial( objects[i]->m_MaterialInfo.Ambient, objects[i]->m_MaterialInfo.Diffuse,
+                                   objects[i]->m_MaterialInfo.Specular, objects[i]->m_MaterialInfo.Emission,
+                                   objects[i]->m_MaterialInfo.Shininess );
+
+                if ( objects[i]->m_GeomChanged )
+                {
+                    _loadQuadsData( eObj, objects[i] );
                 }
             }
             break;
@@ -1251,6 +1346,35 @@ void VspGlWindow::_loadTrisData( Renderable * destObj, DrawObj * drawObj )
     destObj->appendVBuffer( data.data(), sizeof( float ) * data.size() );
 }
 
+// Currently identical to _loadTrisData.  Should make more generic.  Possibly _loadVertNormData
+// Actual taxonomy is the way the data is stored in the drawObj (vector or mesh) and whether
+// it goes into a vertex buffer or a vertex and edge buffer.
+// In addition, the amount of data -- vert, vert & norm, or vert, norm & texture.
+void VspGlWindow::_loadQuadsData( Renderable * destObj, DrawObj * drawObj )
+{
+    assert( drawObj->m_PntVec.size() == drawObj->m_NormVec.size() );
+
+    int n = drawObj->m_PntVec.size();
+
+    std::vector<float> data( n * 8, 0.0f );
+
+    for ( int i = 0; i < ( int )drawObj->m_PntVec.size(); i++ )
+    {
+        const int j = i * 8;
+        data[ j + 0 ] = ( float )drawObj->m_PntVec[i].x();
+        data[ j + 1 ] = ( float )drawObj->m_PntVec[i].y();
+        data[ j + 2 ] = ( float )drawObj->m_PntVec[i].z();
+
+        data[ j + 3 ] = ( float )drawObj->m_NormVec[i].x();
+        data[ j + 4 ] = ( float )drawObj->m_NormVec[i].y();
+        data[ j + 5 ] = ( float )drawObj->m_NormVec[i].z();
+    }
+    destObj->setFacingCW( drawObj->m_FlipNormals );
+
+    destObj->emptyVBuffer();
+    destObj->appendVBuffer( data.data(), sizeof( float ) * data.size() );
+}
+
 void VspGlWindow::_loadMarkData( Renderable * destObj, DrawObj * drawObj )
 {
     int n = drawObj->m_PntVec.size();
@@ -1725,7 +1849,7 @@ int VspGlWindow::OnKeyup( int x, int y )
         if( Fl::event_button3() )
         {
             m_prevRB = glm::vec2( x, y );
-        }		
+        }
         break;
 
     case FL_Control_L:
@@ -1746,7 +1870,7 @@ int VspGlWindow::OnKeyup( int x, int y )
         if( Fl::event_button3() )
         {
             m_prevRB = glm::vec2( x, y );
-        }		
+        }
         break;
 
     case FL_Meta_L:
@@ -1767,7 +1891,7 @@ int VspGlWindow::OnKeyup( int x, int y )
         if( Fl::event_button3() )
         {
             m_prevRB = glm::vec2( x, y );
-        }		
+        }
         break;
     }
     redraw();
@@ -1889,7 +2013,7 @@ void VspGlWindow::_sendFeedback( Selectable * selected )
                 m_GEngine->getDisplay()->center();
 
                 // This is a dummy call to let corScreen know the job is done.
-                corScreen->Set( vec3d( placement.x, placement.y, placement.z ) );
+                corScreen->Set();
 
                 // Only one selection is needed for Center of Rotation, remove this 'selected' from selection list.
                 m_GEngine->getScene()->removeSelected( selected );

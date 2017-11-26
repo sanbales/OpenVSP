@@ -7,16 +7,14 @@
 #include "ManageViewScreen.h"
 #include "ScreenMgr.h"
 
-#include "MainVSPScreen.h"
 #include "MainGLWindow.h"
 
 #include "ManageCORScreen.h"
 
 #include "GraphicEngine.h"
 #include "Display.h"
-#include "FL/Fl.H"
 
-ManageViewScreen::ManageViewScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 445, "Adjust View" )
+ManageViewScreen::ManageViewScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 445 + 45, "Adjust View" )
 {
     //===== Initialize Values for Sliders =====//
 
@@ -85,7 +83,7 @@ ManageViewScreen::ManageViewScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 44
     m_BorderLayout.AddSlider( m_PanYPos, "Pan Y:", 10.0, "%7.3f" );
     m_BorderLayout.AddYGap();
 
-    m_BorderLayout.AddSlider( m_Zoom, "Zoom:", 1, "%7.3g", true );
+    m_BorderLayout.AddSlider( m_Zoom, "Zoom:", 1, "%7.3g", 0, true );
     m_BorderLayout.AddYGap();
 
     //===== Attempt at Euler Angle Rotation =====//
@@ -95,6 +93,13 @@ ManageViewScreen::ManageViewScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 44
     m_BorderLayout.AddYGap();
 
     m_BorderLayout.AddButton( m_ResetCamera, "Reset Camera" );
+
+    m_BorderLayout.AddYGap();
+    m_BorderLayout.AddDividerBox( "Axis Marker Size" );
+    m_BorderLayout.AddYGap();
+
+    m_BorderLayout.AddSlider( m_AxisLenSlider, "Len", 10.0, "%7.3f" );
+
 }
 
 ManageViewScreen::~ManageViewScreen()
@@ -163,6 +168,12 @@ bool ManageViewScreen::Update()
     if (m_ViewportSizeYValue.Get()/factor > Fl::h() - 10)
     {
         m_ViewportSizeYValue.Set( (Fl::h() - 10) * factor );
+    }
+
+    Vehicle *veh = VehicleMgr.GetVehicle();
+    if ( veh )
+    {
+        m_AxisLenSlider.Update( veh->m_AxisLength.GetID() );
     }
 
     m_ViewportSizeX.Update( m_ViewportSizeXValue.GetID() );

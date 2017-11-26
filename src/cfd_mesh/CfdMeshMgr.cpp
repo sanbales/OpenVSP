@@ -10,16 +10,9 @@
 #include "CfdMeshMgr.h"
 //#include "CfdMeshScreen.h"
 //#include "feaStructScreen.h"
-#include "Geom.h"
-#include "Vehicle.h"
-#include "VehicleMgr.h"
-#include "SurfPatch.h"
-#include "Tri.h"
 #include "Util.h"
 #include "SubSurfaceMgr.h"
-#include "SubSurface.h"
-#include "APIDefines.h"
-#include "SurfCore.h"
+#include "main.h"
 
 #ifdef DEBUG_CFD_MESH
 #include <direct.h>
@@ -87,7 +80,7 @@ void Wake::MatchBorderCurve( ICurve* curve )
     double dist_p1 = DistToClosestLeadingEdgePnt( p1 );
 
     double tol = 1.0e-08;
-    if ( fabs( dist_p0 ) < tol && fabs( dist_p1 ) < tol )
+    if ( std::abs( dist_p0 ) < tol && std::abs( dist_p1 ) < tol )
     {
         m_LeadingCurves.push_back( curve );
     }
@@ -201,7 +194,7 @@ void WakeMgr::CreateWakesAppendBorderCurves( vector< ICurve* > & border_curves )
     vector < SCurve* > leading_edge_scurves;
     for ( i = 0 ; i < ( int )m_WakeVec.size() ; i++ )
     {
-        for ( int j = 0 ; j < ( int )m_WakeVec[i]->m_LeadingCurves.size() ; j++ )
+        for ( j = 0 ; j < ( int )m_WakeVec[i]->m_LeadingCurves.size() ; j++ )
         {
             leading_edge_scurves.push_back( m_WakeVec[i]->m_LeadingCurves[j]->m_SCurve_A );
         }
@@ -370,6 +363,8 @@ CfdMeshMgrSingleton::CfdMeshMgrSingleton() : ParmContainer()
     // allocation will fail with a negative argument.
     m_NumComps = -10;
 
+    m_MeshInProgress = false;
+
 #ifdef DEBUG_CFD_MESH
     m_DebugDir  = Stringc( "MeshDebug/" );
     _mkdir( m_DebugDir.get_char_star() );
@@ -403,10 +398,15 @@ void CfdMeshMgrSingleton::ParmChanged( Parm* parm_ptr, int type )
 
 void CfdMeshMgrSingleton::GenerateMesh()
 {
+    m_MeshInProgress = true;
+
     CfdMeshMgr.addOutputText( "Fetching Bezier Surfaces\n" );
 
     vector< XferSurf > xfersurfs;
     CfdMeshMgr.FetchSurfs( xfersurfs );
+
+    // Hide all geoms after fetching their surfaces
+    m_Vehicle->HideAll();
 
     CfdMeshMgr.CleanUp();
     CfdMeshMgr.addOutputText( "Loading Bezier Surfaces\n" );
@@ -417,6 +417,7 @@ void CfdMeshMgrSingleton::GenerateMesh()
     if ( m_SurfVec.size() == 0 )
     {
         CfdMeshMgr.addOutputText( "No Surfaces To Mesh\n" );
+        m_MeshInProgress = false;
         return;
     }
 
@@ -464,6 +465,8 @@ void CfdMeshMgrSingleton::GenerateMesh()
 //  m_ScreenMgr->Update( GEOM_SCREEN );
 
     GetCfdSettingsPtr()->m_DrawMeshFlag = true;
+
+    m_MeshInProgress = false;
 }
 
 void CfdMeshMgrSingleton::CleanUp()
@@ -551,27 +554,7 @@ void CfdMeshMgrSingleton::CleanUp()
 
 void CfdMeshMgrSingleton::addOutputText( const string &str, int output_type )
 {
-//    m_OutStream << str;
-
-    MessageData data;
-    data.m_String = "CFDMessage";
-    data.m_StringVec.push_back( str );
-    MessageMgr::getInstance().Send( "ScreenMgr", NULL, data );
-
-
-//        ScreenMgr* screenMgr = m_Vehicle->getScreenMgr();
-//        if ( screenMgr )
-//        {
-//                if ( output_type == CFD_OUTPUT )
-//                        screenMgr->getCfdMeshScreen()->addOutputText( str );
-//                else if ( output_type == FEA_OUTPUT )
-//                        screenMgr->getFeaStructScreen()->addOutputText( str );
-//        }
-//        else
-//        {
-//                printf( "%s", str );
-//                fflush( stdout );
-//        }
+    m_OutStream << str;
 }
 
 void CfdMeshMgrSingleton::AdjustAllSourceLen( double mult )
@@ -850,9 +833,6 @@ void CfdMeshMgrSingleton::UpdateDomain()
 
     vec3d xyzc = m_Domain.GetCenter();
 
-    vec3d xyz0 = xyzc;
-    xyz0.v[0] = m_Domain.GetMin( 0 );
-
     if ( GetCfdSettingsPtr()->GetFarMeshFlag() )
     {
         if( !GetCfdSettingsPtr()->GetFarCompFlag() )
@@ -878,7 +858,7 @@ void CfdMeshMgrSingleton::UpdateDomain()
 
             if ( GetCfdSettingsPtr()->GetFarManLocFlag() )
             {
-                xyz0 = vec3d( GetCfdSettingsPtr()->m_FarXLocation(), GetCfdSettingsPtr()->m_FarYLocation(), GetCfdSettingsPtr()->m_FarZLocation() );
+                vec3d xyz0 = vec3d( GetCfdSettingsPtr()->m_FarXLocation(), GetCfdSettingsPtr()->m_FarYLocation(), GetCfdSettingsPtr()->m_FarZLocation() );
                 xyzc = xyz0;
                 xyzc.v[0] += lwh.v[0] / 2.0;
             }
@@ -978,8 +958,7 @@ void CfdMeshMgrSingleton::LoadSurfs( vector< XferSurf > &xfersurfs )
         }
 
         surfPtr->SetFlipFlag( xfersurfs[i].m_FlipNormal );
-        //Sets whether WING, DISK, NORMAL
-        surfPtr->SetSurfaceType(xfersurfs[i].m_SurfType);
+
         //Sets whether NORMAL, NEGATIVE, TRANSPARENT
         surfPtr->SetSurfaceCfdType(xfersurfs[i].m_SurfCfdType);
 
@@ -1309,11 +1288,10 @@ void CfdMeshMgrSingleton::Remesh( int output_type )
     {
         int num_tris = 0;
 
-        int num_rev_removed;
+        int num_rev_removed = 0;
 
         for ( int iter = 0 ; iter < 10 ; ++iter )
         {
-            m_SurfVec[i]->GetMesh()->m_Iteration = iter;
             num_tris = 0;
             m_SurfVec[i]->GetMesh()->Remesh();
 
@@ -1364,7 +1342,6 @@ void CfdMeshMgrSingleton::RemeshSingleComp( int comp_id, int output_type )
             for ( int iter = 0 ; iter < 10 ; iter++ )
             {
                 num_tris = 0;
-                m_SurfVec[i]->GetMesh()->m_Iteration = iter;
                 m_SurfVec[i]->GetMesh()->Remesh();
 
                 num_tris += m_SurfVec[i]->GetMesh()->GetTriList().size();
@@ -1473,6 +1450,11 @@ void CfdMeshMgrSingleton::ExportFiles()
     }
 
     WriteNASCART_Obj_Tri_Gmsh( dat_fn, key_fn, obj_fn, tri_fn, gmsh_fn );
+
+    if ( GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_FACET_FILE_NAME )->Get() )
+    {
+        WriteFacet( GetCfdSettingsPtr()->GetExportFileName( vsp::CFD_FACET_FILE_NAME ) );
+    }
 
     if ( GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_SRF_FILE_NAME )->Get() )
     {
@@ -1701,7 +1683,7 @@ void CfdMeshMgrSingleton::WriteTetGen( const string &filename )
         vector< vec3d > tmpPntVec;
         for ( int i = 0 ; i < ( int )interiorPntVec.size() ; i++ )
         {
-            if ( fabs( interiorPntVec[i].y() ) < 1.0e-4 )
+            if ( std::abs( interiorPntVec[i].y() ) < 1.0e-4 )
             {
                 interiorPntVec[i].set_y( 1.0e-5 );
             }
@@ -1996,6 +1978,144 @@ void CfdMeshMgrSingleton::WriteNASCART_Obj_Tri_Gmsh( const string &dat_fn, const
     }
 }
 
+void CfdMeshMgrSingleton::WriteFacet( const string &facet_fn )
+{
+    // Note: Wake mesh not included in Facet export
+
+    //==== Find All Points and Tri Counts ====//
+    vector< vec3d* > allPntVec;
+    for ( int i = 0; i < (int)m_SurfVec.size(); i++ )
+    {
+        vector< vec3d >& sPntVec = m_SurfVec[i]->GetMesh()->GetSimpPntVec();
+        for ( int v = 0; v < (int)sPntVec.size(); v++ )
+        {
+            if ( !m_SurfVec[i]->GetWakeFlag() )
+            {
+                allPntVec.push_back( &sPntVec[v] );
+            }
+        }
+    }
+
+    //==== Build Map ====//
+    map< int, vector< int > > indMap;
+    vector< int > pntShift;
+    BuildIndMap( allPntVec, indMap, pntShift );
+
+    //==== Assemble Normal Tris ====//
+    vector< SimpTri > allTriVec;
+    for ( int i = 0; i < (int)m_SurfVec.size(); i++ )
+    {
+        if ( !m_SurfVec[i]->GetWakeFlag() )
+        {
+            vector < SimpTri >& sTriVec = m_SurfVec[i]->GetMesh()->GetSimpTriVec();
+            vector< vec3d >& sPntVec = m_SurfVec[i]->GetMesh()->GetSimpPntVec();
+            for ( int t = 0; t < (int)sTriVec.size(); t++ )
+            {
+                int i0 = FindPntIndex( sPntVec[sTriVec[t].ind0], allPntVec, indMap );
+                int i1 = FindPntIndex( sPntVec[sTriVec[t].ind1], allPntVec, indMap );
+                int i2 = FindPntIndex( sPntVec[sTriVec[t].ind2], allPntVec, indMap );
+                SimpTri stri;
+                stri.ind0 = pntShift[i0] + 1;
+                stri.ind1 = pntShift[i1] + 1;
+                stri.ind2 = pntShift[i2] + 1;
+                stri.m_Tags = sTriVec[t].m_Tags;
+                allTriVec.push_back( stri );
+            }
+        }
+    }
+    //==== Assemble All Used Points ====//
+    vector< vec3d* > allUsedPntVec;
+    for ( int i = 0; i < (int)allPntVec.size(); i++ )
+    {
+        if ( pntShift[i] >= 0 )
+        {
+            allUsedPntVec.push_back( allPntVec[i] );
+        }
+    }
+
+    //=====================================================================================//
+    //==== Write Facet File for Xpatch ====================================================//
+    //=====================================================================================//
+    if ( facet_fn.length() != 0 )
+    {
+        FILE* fp = fopen( facet_fn.c_str(), "w" );
+
+        if ( fp )
+        {
+            fprintf( fp, "Exported from %s\n", VSPVERSION4 ); // Title/comment line
+            fprintf( fp, "1 \n" ); // Number of "Big" parts (1 Vehicle broken into small parts by geom and subsurface)
+
+            fprintf( fp, "%s\n", m_Vehicle->GetName().c_str() ); // Name of "Big" part
+
+            // mirror -> i, a b c d
+            //     if i = 0 -> no mirror
+            //     if i = 1 -> "Big" part is mirrored across plane defined by ax+by+cz-d=0
+            fprintf( fp, "0, 0.000 1.000 0.000 0.000 \n" );
+
+            fprintf( fp, "%d \n", (int)allUsedPntVec.size() ); // # of nodes in "Big" part
+
+            //==== Write All Pnts (Nodes) ====//
+            for ( int i = 0; i < (int)allUsedPntVec.size(); i++ )
+            {
+                fprintf( fp, "%16.10g %16.10g %16.10g\n", allUsedPntVec[i]->x(), allUsedPntVec[i]->y(), allUsedPntVec[i]->z() );
+            }
+
+            vector < int > tri_offset; // vector of number of tris for each tag
+
+            int materialID = 0; // Default Material ID of PEC (Referred to as "iCoat" in XPatch facet file documentation)
+
+            vector < int > all_tag_vec = SubSurfaceMgr.GetAllTags(); // vector of tags, where each tag identifies a part or group of facets
+
+            //==== Get # of facets for each part ====//
+            for ( unsigned int i = 0; i < all_tag_vec.size(); i++ )
+            {
+                int tag_count = 0;
+
+                for ( unsigned int j = 0; j < allTriVec.size(); j++ )
+                {
+                    if ( all_tag_vec[i] == SubSurfaceMgr.GetTag( allTriVec[j].m_Tags ) )
+                    {
+                        tag_count++;
+                    }
+                }
+
+                tri_offset.push_back( tag_count );
+            }
+
+            fprintf( fp, "%ld \n", tri_offset.size() ); // # of "Small" parts
+
+            int facet_count = 0; // counter for number of tris/facets
+
+                                 //==== Write Out Tris ====//
+            for ( unsigned int i = 0; i < all_tag_vec.size(); i++ )
+            {
+                int curr_tag = all_tag_vec[i];
+                bool new_section = true; // flag to write small part section header
+
+                for ( unsigned int j = 0; j < allTriVec.size(); j++ )
+                {
+                    if ( curr_tag == SubSurfaceMgr.GetTag( allTriVec[j].m_Tags ) ) // only write out current tris for surrent tag
+                    {
+                        if ( new_section ) // write small part header and get material ID for small part
+                        {
+                            string name = SubSurfaceMgr.GetTagNames( allTriVec[j].m_Tags );
+                            fprintf( fp, "%s\n", name.c_str() ); // Write name of small part
+                            fprintf( fp, "%d 3\n", tri_offset[i] ); // Number of facets for the part, 3 nodes per facet
+
+                            new_section = false;
+                        }
+
+                        facet_count++;
+
+                        // 3 nodes of facet, material ID, component ID, running facet #:
+                        fprintf( fp, "%d %d %d %d %d %d\n", allTriVec[j].ind0, allTriVec[j].ind1, allTriVec[j].ind2, materialID, i + 1, facet_count );
+                    }
+                }
+            }
+            fclose( fp );
+        }
+    }
+}
 
 void CfdMeshMgrSingleton::WriteSurfsIntCurves( const string &filename )
 {
@@ -2084,15 +2204,36 @@ void CfdMeshMgrSingleton::WriteSurfsIntCurves( const string &filename )
                 ipntVec.push_back( border_curves[i]->m_ISegDeque[j]->m_IPnt[0] );
             }
             ipntVec.push_back( border_curves[i]->m_ISegDeque.back()->m_IPnt[1] );
-            fprintf( fp, "%d		// Number of Border Points (Au, Aw, Bu, Bw) \n", ( int )ipntVec.size() );
+
+            if ( ! GetCfdSettingsPtr()->m_XYZIntCurveFlag() )
+            {
+                fprintf( fp, "%d		// Number of Border Points (Au, Aw, Bu, Bw) \n", ( int )ipntVec.size() );
+            }
+            else
+            {
+                fprintf( fp, "%d		// Number of Border Points (Au, Aw, Bu, Bw, X, Y, Z) \n", ( int )ipntVec.size() );
+            }
 
             for ( int j = 0 ; j < ( int )ipntVec.size() ; j++ )
             {
                 Puw* pwA = ipntVec[j]->GetPuw( surfA );
                 Puw* pwB = ipntVec[j]->GetPuw( surfB );
-                fprintf( fp, "%d	%16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
-                         pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y() );
 
+                if ( ! GetCfdSettingsPtr()->m_XYZIntCurveFlag() )
+                {
+                    fprintf( fp, "%d    %16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
+                             pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y() );
+                }
+                else
+                {
+                    vec3d pA = surfA->CompPnt( pwA->m_UW.x(), pwA->m_UW.y() );
+                    vec3d pB = surfB->CompPnt( pwB->m_UW.x(), pwB->m_UW.y() );
+                    vec3d p = ( pA + pB ) * 0.5;
+
+                    fprintf( fp, "%d    %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
+                             pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y(),
+                             p.x(), p.y(), p.z() );
+                }
             }
             fprintf( fp, "END Border_Curve\n" );
         }
@@ -2120,15 +2261,36 @@ void CfdMeshMgrSingleton::WriteSurfsIntCurves( const string &filename )
                 ipntVec.push_back( intersect_curves[i]->m_ISegDeque[j]->m_IPnt[0] );
             }
             ipntVec.push_back( intersect_curves[i]->m_ISegDeque.back()->m_IPnt[1] );
-            fprintf( fp, "%d		// Number of Intersect Points (Au, Aw, Bu, Bw) \n", ( int )ipntVec.size() );
+
+            if ( ! GetCfdSettingsPtr()->m_XYZIntCurveFlag() )
+            {
+                fprintf( fp, "%d		// Number of Intersect Points (Au, Aw, Bu, Bw) \n", ( int )ipntVec.size() );
+            }
+            else
+            {
+                fprintf( fp, "%d		// Number of Intersect Points (Au, Aw, Bu, Bw, X, Y, Z) \n", ( int )ipntVec.size() );
+            }
 
             for ( int j = 0 ; j < ( int )ipntVec.size() ; j++ )
             {
                 Puw* pwA = ipntVec[j]->GetPuw( surfA );
                 Puw* pwB = ipntVec[j]->GetPuw( surfB );
-                fprintf( fp, "%d	%16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
-                         pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y() );
 
+                if ( ! GetCfdSettingsPtr()->m_XYZIntCurveFlag() )
+                {
+                    fprintf( fp, "%d    %16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
+                             pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y() );
+                }
+                else
+                {
+                    vec3d pA = surfA->CompPnt( pwA->m_UW.x(), pwA->m_UW.y() );
+                    vec3d pB = surfB->CompPnt( pwB->m_UW.x(), pwB->m_UW.y() );
+                    vec3d p = ( pA + pB ) * 0.5;
+
+                    fprintf( fp, "%d    %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf, %16.16lf \n", j,
+                             pwA->m_UW.x(), pwA->m_UW.y(), pwB->m_UW.x(), pwB->m_UW.y(),
+                             p.x(), p.y(), p.z() );
+                }
             }
             fprintf( fp, "END Intersect_Curve\n" );
         }
@@ -2218,7 +2380,7 @@ string CfdMeshMgrSingleton::CheckWaterTight()
                 }
                 triVec.push_back( tri );
 
-                if ( tri->debugFlag == true )
+                if ( tri->debugFlag )
                 {
                     m_BadTris.push_back( tri );
                 }
@@ -2249,7 +2411,7 @@ string CfdMeshMgrSingleton::CheckWaterTight()
     {
         for ( int i = 0 ; i < ( int )iter->second.size() ; i++ )
         {
-            if ( iter->second[i]->debugFlag == false )
+            if ( ! iter->second[i]->debugFlag )
             {
                 delete iter->second[i];
             }
@@ -2257,7 +2419,7 @@ string CfdMeshMgrSingleton::CheckWaterTight()
     }
     for ( int i = 0 ; i < ( int )triVec.size() ; i++ )
     {
-        if ( triVec[i]->debugFlag == false )
+        if ( ! triVec[i]->debugFlag )
         {
             delete triVec[i];
         }
@@ -2324,9 +2486,9 @@ int CfdMeshMgrSingleton::BuildIndMap( vector< vec3d* > & allPntVec, map< int, ve
             {
                 int testind = iter->second[j];
 
-                if ( fabs( allPntVec[i]->x() - allPntVec[testind]->x() ) < tol  &&
-                        fabs( allPntVec[i]->y() - allPntVec[testind]->y() ) < tol  &&
-                        fabs( allPntVec[i]->z() - allPntVec[testind]->z() ) < tol  )
+                if ( std::abs( allPntVec[i]->x() - allPntVec[testind]->x() ) < tol  &&
+                        std::abs( allPntVec[i]->y() - allPntVec[testind]->y() ) < tol  &&
+                        std::abs( allPntVec[i]->z() - allPntVec[testind]->z() ) < tol  )
                 {
                     addIndexFlag = false;
                 }
@@ -2381,9 +2543,9 @@ int  CfdMeshMgrSingleton::FindPntIndex(  vec3d& pnt, vector< vec3d* > & allPntVe
         {
             int testind = iter->second[j];
 
-            if ( fabs( pnt.x() - allPntVec[testind]->x() ) < tol  &&
-                    fabs( pnt.y() - allPntVec[testind]->y() ) < tol  &&
-                    fabs( pnt.z() - allPntVec[testind]->z() ) < tol  )
+            if ( std::abs( pnt.x() - allPntVec[testind]->x() ) < tol  &&
+                    std::abs( pnt.y() - allPntVec[testind]->y() ) < tol  &&
+                    std::abs( pnt.z() - allPntVec[testind]->z() ) < tol  )
             {
                 return testind;
             }
@@ -3216,16 +3378,119 @@ void CfdMeshMgrSingleton::BuildSubSurfIntChains()
             ss_vec[ss]->SplitSegsW( surf->GetSurfCore()->GetMinW() );
             ss_vec[ss]->SplitSegsW( surf->GetSurfCore()->GetMaxW() );
 
-            vector< SSLineSeg >& segs = ss_vec[ss]->GetSplitSegs();
-            ISegChain* chain = NULL;
+            vector < vector< SSLineSeg > >& segsvec = ss_vec[ss]->GetSplitSegs();
 
-            bool new_chain = true;
-            bool is_poly = ss_vec[ss]->GetPolyFlag();
-
-            // Build Intersection Chains
-            for ( int ls = 0; ls < ( int )segs.size(); ls++ )
+            for ( int i = 0; i < segsvec.size(); i++ )
             {
-                if ( new_chain && chain )
+                vector< SSLineSeg >& segs = segsvec[i];
+
+                ISegChain* chain = NULL;
+
+                bool new_chain = true;
+                bool is_poly = ss_vec[ss]->GetPolyFlag();
+
+                // Build Intersection Chains
+                for ( int ls = 0; ls < ( int )segs.size(); ls++ )
+                {
+                    if ( new_chain && chain )
+                    {
+                        if ( chain->Valid() )
+                        {
+                            m_ISegChainList.push_back( chain );
+                        }
+                        else
+                        {
+                            delete chain;
+                            chain = NULL;
+                        }
+                    }
+
+                    if ( new_chain )
+                    {
+                        chain = new ISegChain;
+                        chain->m_SurfA = surf;
+                        chain->m_SurfB = surf;
+                        if ( !is_poly )
+                        {
+                            new_chain = false;
+                        }
+                    }
+
+                    SSLineSeg l_seg = segs[ls];
+                    vec3d lp0, lp1;
+
+                    lp0 = l_seg.GetP0();
+                    lp1 = l_seg.GetP1();
+                    uw_pnt0 = vec2d( lp0.x(), lp0.y() );
+                    uw_pnt1 = vec2d( lp1.x(), lp1.y() );
+                    double max_u, max_w, tol;
+                    double min_u, min_w;
+                    tol = 1e-6;
+                    min_u = surf->GetSurfCore()->GetMinU();
+                    min_w = surf->GetSurfCore()->GetMinW();
+                    max_u = surf->GetSurfCore()->GetMaxU();
+                    max_w = surf->GetSurfCore()->GetMaxW();
+
+                    if ( uw_pnt0[0] < min_u - FLT_EPSILON || uw_pnt0[1] < min_w - FLT_EPSILON || uw_pnt1[0] < min_u - FLT_EPSILON || uw_pnt1[1] < min_w - FLT_EPSILON )
+                    {
+                        new_chain = true;
+                        continue; // Skip if either point has a value not on this surface
+                    }
+                    if ( uw_pnt0[0] > max_u + FLT_EPSILON || uw_pnt0[1] > max_w + FLT_EPSILON || uw_pnt1[0] > max_u + FLT_EPSILON || uw_pnt1[1] > max_w + FLT_EPSILON )
+                    {
+                        new_chain = true;
+                        continue; // Skip if either point has a value not on this surface
+                    }
+                    if ( ((std::abs( uw_pnt0[0]-max_u ) < tol && std::abs( uw_pnt1[0]-max_u ) < tol) ||
+                            (std::abs( uw_pnt0[1]-max_w ) < tol && std::abs( uw_pnt1[1]-max_w ) < tol) ||
+                            (std::abs( uw_pnt0[0]-min_u ) < tol && std::abs( uw_pnt1[0]-min_u ) < tol) ||
+                            (std::abs( uw_pnt0[1]-min_w ) < tol && std::abs( uw_pnt1[1]-min_w ) < tol))
+                            && is_poly  )
+                    {
+                        new_chain = true;
+                        continue; // Skip if both end points are on the same edge of the surface
+                    }
+
+                    double delta_u = ( uw_pnt1[0] - uw_pnt0[0] ) / num_sects;
+                    double delta_w = ( uw_pnt1[1] - uw_pnt0[1] ) / num_sects;
+
+                    vector< vec2d > uw_pnts;
+                    uw_pnts.resize( num_sects + 1 );
+                    uw_pnts[0] = uw_pnt0;
+                    uw_pnts[num_sects] = uw_pnt1;
+
+                    // Add additional points between the segment endpoints to hopefully make the curve planar with the surface
+                    for ( int p = 1 ; p < num_sects ; p++ )
+                    {
+                        uw_pnts[p] = vec2d( uw_pnt0[0] + delta_u * p, uw_pnt0[1] + delta_w * p );
+                    }
+
+                    for ( int p = 1 ; p < ( int ) uw_pnts.size() ; p++ )
+                    {
+                        Puw* puwA0 = new Puw( surf, uw_pnts[p - 1] );
+                        Puw* puwA1 = new Puw( surf, uw_pnts[p] );
+                        Puw* puwB0 = new Puw( surf, uw_pnts[p - 1] );
+                        Puw* puwB1 = new Puw( surf, uw_pnts[p] );
+
+                        m_DelPuwVec.push_back( puwA0 );         // Save to delete later
+                        m_DelPuwVec.push_back( puwA1 );
+                        m_DelPuwVec.push_back( puwB0 );
+                        m_DelPuwVec.push_back( puwB1 );
+
+                        IPnt* p0 = new IPnt( puwA0, puwB0 );
+                        IPnt* p1 = new IPnt( puwA1, puwB1 );
+
+                        m_DelIPntVec.push_back( p0 );           // Save to delete later
+                        m_DelIPntVec.push_back( p1 );
+
+                        p0->CompPnt();
+                        p1->CompPnt();
+
+                        ISeg* seg = new ISeg( surf, surf, p0, p1 );
+                        chain->m_ISegDeque.push_back( seg );
+                    }
+                }
+                if ( chain )
                 {
                     if ( chain->Valid() )
                     {
@@ -3236,103 +3501,6 @@ void CfdMeshMgrSingleton::BuildSubSurfIntChains()
                         delete chain;
                         chain = NULL;
                     }
-                }
-
-                if ( new_chain )
-                {
-                    chain = new ISegChain;
-                    chain->m_SurfA = surf;
-                    chain->m_SurfB = surf;
-                    if ( !is_poly )
-                    {
-                        new_chain = false;
-                    }
-                }
-
-                SSLineSeg l_seg = segs[ls];
-                vec3d lp0, lp1;
-
-                lp0 = l_seg.GetP0();
-                lp1 = l_seg.GetP1();
-                uw_pnt0 = vec2d( lp0.x(), lp0.y() );
-                uw_pnt1 = vec2d( lp1.x(), lp1.y() );
-                double max_u, max_w, tol;
-                double min_u, min_w;
-                tol = 1e-6;
-                min_u = surf->GetSurfCore()->GetMinU();
-                min_w = surf->GetSurfCore()->GetMinW();
-                max_u = surf->GetSurfCore()->GetMaxU();
-                max_w = surf->GetSurfCore()->GetMaxW();
-
-                if ( uw_pnt0[0] < min_u || uw_pnt0[1] < min_w || uw_pnt1[0] < min_u || uw_pnt1[1] < min_w )
-                {
-                    new_chain = true;
-                    continue; // Skip if either point has a value not on this surface
-                }
-                if ( uw_pnt0[0] > max_u || uw_pnt0[1] > max_w || uw_pnt1[0] > max_u || uw_pnt1[1] > max_w )
-                {
-                    new_chain = true;
-                    continue; // Skip if either point has a value not on this surface
-                }
-                if ( ((fabs( uw_pnt0[0]-max_u ) < tol && fabs( uw_pnt1[0]-max_u ) < tol) ||
-                     (fabs( uw_pnt0[1]-max_w ) < tol && fabs( uw_pnt1[1]-max_w ) < tol) ||
-                     (fabs( uw_pnt0[0]-min_u ) < tol && fabs( uw_pnt1[0]-min_u ) < tol) ||
-                     (fabs( uw_pnt0[1]-min_w ) < tol && fabs( uw_pnt1[1]-min_w ) < tol))
-                     && is_poly  )
-                {
-                    new_chain = true;
-                    continue; // Skip if both end points are on the same edge of the surface
-                }
-
-                double delta_u = ( uw_pnt1[0] - uw_pnt0[0] ) / num_sects;
-                double delta_w = ( uw_pnt1[1] - uw_pnt0[1] ) / num_sects;
-
-                vector< vec2d > uw_pnts;
-                uw_pnts.resize( num_sects + 1 );
-                uw_pnts[0] = uw_pnt0;
-                uw_pnts[num_sects] = uw_pnt1;
-
-                // Add additional points between the segment endpoints to hopefully make the curve planar with the surface
-                for ( int p = 1 ; p < num_sects ; p++ )
-                {
-                    uw_pnts[p] = vec2d( uw_pnt0[0] + delta_u * p, uw_pnt0[1] + delta_w * p );
-                }
-
-                for ( int p = 1 ; p < ( int ) uw_pnts.size() ; p++ )
-                {
-                    Puw* puwA0 = new Puw( surf, uw_pnts[p - 1] );
-                    Puw* puwA1 = new Puw( surf, uw_pnts[p] );
-                    Puw* puwB0 = new Puw( surf, uw_pnts[p - 1] );
-                    Puw* puwB1 = new Puw( surf, uw_pnts[p] );
-
-                    m_DelPuwVec.push_back( puwA0 );         // Save to delete later
-                    m_DelPuwVec.push_back( puwA1 );
-                    m_DelPuwVec.push_back( puwB0 );
-                    m_DelPuwVec.push_back( puwB1 );
-
-                    IPnt* p0 = new IPnt( puwA0, puwB0 );
-                    IPnt* p1 = new IPnt( puwA1, puwB1 );
-
-                    m_DelIPntVec.push_back( p0 );           // Save to delete later
-                    m_DelIPntVec.push_back( p1 );
-
-                    p0->CompPnt();
-                    p1->CompPnt();
-
-                    ISeg* seg = new ISeg( surf, surf, p0, p1 );
-                    chain->m_ISegDeque.push_back( seg );
-                }
-            }
-            if ( chain )
-            {
-                if ( chain->Valid() )
-                {
-                    m_ISegChainList.push_back( chain );
-                }
-                else
-                {
-                    delete chain;
-                    chain = NULL;
                 }
             }
         }
@@ -3783,8 +3951,6 @@ void CfdMeshMgrSingleton::MergeBorderEndPoints()
 
 void CfdMeshMgrSingleton::MergeIPntGroups( list< IPntGroup* > & iPntGroupList, double tol_fract )
 {
-    list< IPntGroup* >::iterator g;
-
     //===== Merge Two Closest Groups While Under Tol ====//
     IPntGroup* nearG1 = NULL;
     IPntGroup* nearG2 = NULL;
@@ -3861,8 +4027,8 @@ bool CfdMeshMgrSingleton::SetDeleteTriFlag( int aType, bool symPlane, vector < b
         if ( aInThisB )
         {
             // Trim Symmetry plane
-            if ( symPlane && m_SurfVec[b]->GetFarFlag() == true &&
-                 GetCfdSettingsPtr()->GetFarCompFlag() == true )
+            if ( symPlane && m_SurfVec[b]->GetFarFlag() &&
+                 GetCfdSettingsPtr()->GetFarCompFlag() )
             {
                 return true;
             }
@@ -3962,8 +4128,8 @@ void CfdMeshMgrSingleton::RemoveInteriorTris()
                     {
                         m_SurfVec[i]->IntersectLineSeg( cp, ep, t_vec_vec[comp_id] );
                     }
-                    else if ( m_SurfVec[i]->GetFarFlag() == true && m_SurfVec[s]->GetSymPlaneFlag() == true &&
-                              GetCfdSettingsPtr()->GetFarCompFlag() == true ) // Unless trimming sym plane by outer domain
+                    else if ( m_SurfVec[i]->GetFarFlag() && m_SurfVec[s]->GetSymPlaneFlag() &&
+                              GetCfdSettingsPtr()->GetFarCompFlag() ) // Unless trimming sym plane by outer domain
                     {
                         m_SurfVec[i]->IntersectLineSeg( cp, ep, t_vec_vec[comp_id] );
                     }
@@ -3976,8 +4142,8 @@ void CfdMeshMgrSingleton::RemoveInteriorTris()
             {
                 int c = m_SurfVec[i]->GetCompID();
 
-                if ( m_SurfVec[s]->GetSymPlaneFlag() == true && m_SurfVec[i]->GetFarFlag() == true &&
-                     GetCfdSettingsPtr()->GetFarCompFlag() == true )
+                if ( m_SurfVec[s]->GetSymPlaneFlag() && m_SurfVec[i]->GetFarFlag() &&
+                     GetCfdSettingsPtr()->GetFarCompFlag() )
                 {
                     if ( ( int )( t_vec_vec[c].size() + 1 ) % 2 == 1 ) // +1 Reverse action on sym plane wrt outer boundary.
                     {
@@ -4066,7 +4232,7 @@ void CfdMeshMgrSingleton::RemoveInteriorTris()
     {
         for ( s = 0 ; s < ( int )m_SurfVec.size() ; s++ )
         {
-            if ( m_SurfVec[s]->GetSymPlaneFlag() == false )
+            if ( ! m_SurfVec[s]->GetSymPlaneFlag() )
             {
                 list <Tri*> triList = m_SurfVec[s]->GetMesh()->GetTriList();
                 for ( t = triList.begin() ; t != triList.end(); t++ )
@@ -4081,7 +4247,7 @@ void CfdMeshMgrSingleton::RemoveInteriorTris()
 
             if( !GetCfdSettingsPtr()->GetFarMeshFlag() ) // Don't keep symmetry plane.
             {
-                if ( m_SurfVec[s]->GetSymPlaneFlag() == true )
+                if ( m_SurfVec[s]->GetSymPlaneFlag() )
                 {
                     list <Tri*> triList = m_SurfVec[s]->GetMesh()->GetTriList();
                     for ( t = triList.begin() ; t != triList.end(); t++ )
@@ -4353,7 +4519,7 @@ void CfdMeshMgrSingleton::DebugWriteChains( const char* name, bool tessFlag )
                 }
 
 
-                if ( tessFlag == false )
+                if ( ! tessFlag )
                 {
                     for ( int j = 0 ; j < ( int )( *c )->m_ISegDeque.size() ; j++ )
                     {
@@ -4469,6 +4635,11 @@ void CfdMeshMgrSingleton::TestStuff()
 
 void CfdMeshMgrSingleton::LoadDrawObjs( vector< DrawObj* > &draw_obj_vec )
 {
+    if ( m_MeshInProgress )
+    {
+        return;
+    }
+
     GetGridDensityPtr()->Highlight( GetCurrSource() );
     GetGridDensityPtr()->Show( GetCfdSettingsPtr()->m_DrawSourceFlag.Get() );
     GetGridDensityPtr()->LoadDrawObjs( draw_obj_vec );
@@ -4641,6 +4812,60 @@ void CfdMeshMgrSingleton::LoadDrawObjs( vector< DrawObj* > &draw_obj_vec )
     m_MeshBadTriDO.m_NormVec = badTriData;
 
     draw_obj_vec.push_back( &m_MeshBadTriDO );
+
+//    // Draw ISegChains
+//    m_ISegChainDO.m_GeomID = GetID() + "ISEGCHAIN";
+//    m_ISegChainDO.m_Type = DrawObj::VSP_LINES;
+//    m_ISegChainDO.m_Visible = true;
+//    m_ISegChainDO.m_LineColor = vec3d( 0, 0, 1 );
+//    m_ISegChainDO.m_LineWidth = 3.0;
+//
+//    m_ISegChainPtsDO.m_GeomID = GetID() + "ISEGCHAINPTS";
+//    m_ISegChainPtsDO.m_Type = DrawObj::VSP_POINTS;
+//    m_ISegChainPtsDO.m_Visible = true;
+//    m_ISegChainPtsDO.m_PointColor = vec3d( 0, 0, 0 );
+//    m_ISegChainPtsDO.m_PointSize = 10.0;
+//
+//
+//    m_ISegChainDO.m_PntVec.clear();
+//    m_ISegChainPtsDO.m_PntVec.clear();
+//    list< ISegChain* >::iterator c;
+//    for ( c = m_ISegChainList.begin() ; c != m_ISegChainList.end(); c++ )
+//    {
+//        if ( true )
+//        {
+//            m_ISegChainPtsDO.m_PntVec.push_back( (*c)->m_TessVec[0]->m_Pnt );
+//            for ( int j = 1 ; j < ( int )( *c )->m_TessVec.size() ; j++ )
+//            {
+//                m_ISegChainDO.m_PntVec.push_back( (*c)->m_TessVec[j-1]->m_Pnt );
+//                m_ISegChainDO.m_PntVec.push_back( (*c)->m_TessVec[j]->m_Pnt );
+//                m_ISegChainPtsDO.m_PntVec.push_back( (*c)->m_TessVec[j]->m_Pnt );
+//            }
+//
+//        }
+//        else
+//        {
+//            Bezier_curve xyzcrvA = (*c)->m_ACurve.GetUWCrv();
+//            xyzcrvA.UWCurveToXYZCurve( (*c)->m_ACurve.GetSurf() );
+//            vector< vec3d > ptvec;
+//            xyzcrvA.GetControlPoints(ptvec);
+//
+//            m_ISegChainPtsDO.m_PntVec.insert( m_ISegChainPtsDO.m_PntVec.begin(), ptvec.begin(), ptvec.end() );
+//
+//            for ( int j = 1; j < ptvec.size(); j++ )
+//            {
+//                m_ISegChainDO.m_PntVec.push_back( ptvec[j-1] );
+//                m_ISegChainDO.m_PntVec.push_back( ptvec[j] );
+//            }
+//        }
+//    }
+//
+//    // Normal Vec is not required, load placeholder.
+//    m_ISegChainDO.m_NormVec = m_ISegChainDO.m_PntVec;
+//    m_ISegChainPtsDO.m_NormVec = m_ISegChainPtsDO.m_PntVec;
+//
+//    draw_obj_vec.push_back( &m_ISegChainDO );
+//    draw_obj_vec.push_back( &m_ISegChainPtsDO );
 }
 
 /*

@@ -41,12 +41,19 @@ private:
     int NumberOfEdges_;
 
     VSP_EDGE *EdgeList_;
+
+    int SurfaceType_;
     
+    double MinLoopArea_;
+        
     // Wake data
 
     int NumberOfKuttaNodes_;
 
     int *KuttaNode_;
+    int *WingSurfaceForKuttaNode_;
+    int *WingSurfaceForKuttaNodeIsPeriodic_;
+        
     double *WakeTrailingEdgeX_;
     double *WakeTrailingEdgeY_;
     double *WakeTrailingEdgeZ_;    
@@ -135,11 +142,19 @@ public:
     // Access to kutta node list
     
     void SizeKuttaNodeList(int NumberOfKuttaNodes);
+    
     int NumberOfKuttaNodes(void) { return NumberOfKuttaNodes_; };
     int &KuttaNode(int i) { return KuttaNode_[i]; };
+    int &WingSurfaceForKuttaNode(int i) { return WingSurfaceForKuttaNode_[i]; };
+    int &WingSurfaceForKuttaNodeIsPeriodic(int i) { return WingSurfaceForKuttaNodeIsPeriodic_[i]; };
+    
     double &WakeTrailingEdgeX(int i) { return WakeTrailingEdgeX_[i]; };
     double &WakeTrailingEdgeY(int i) { return WakeTrailingEdgeY_[i]; };
     double &WakeTrailingEdgeZ(int i) { return WakeTrailingEdgeZ_[i]; };
+    
+    // Surface type
+    
+    int &SurfaceType(void) { return SurfaceType_; };
    
     // Create edge data
     
@@ -153,6 +168,8 @@ public:
     
     void CalculateUpwindEdges(void);
     void CreateUpwindEdgeData(void);
+    
+    double &MinLoopArea(void) { return MinLoopArea_; };
 
     // Write out mesh
     

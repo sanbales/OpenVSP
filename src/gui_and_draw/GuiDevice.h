@@ -27,11 +27,16 @@
 #include <FL/Fl_Tree.H>
 #include <FL/Fl_Tree_Item.H>
 #include <FL/Fl_Tree_Prefs.H>
+#include <FL/Fl_Scroll.H>
+
+#include "Cartesian.H"
 
 #include "Vec3d.h"
 #include "Parm.h"
 #include "Vehicle.h"
 #include "VehicleMgr.h"
+#include "PCurve.h"
+
 #include <vector>
 #include <string>
 #include <map>
@@ -42,6 +47,7 @@ using std::map;
 
 class Parm;
 class VspScreen;
+class GroupLayout;
 
 //====GuiDevice - Handles Interaction Between Parms and FLTK Widgets ====//
 
@@ -109,6 +115,16 @@ protected:
     bool m_AllowDrop;
 };
 
+class Vsp_Canvas : public Ca_Canvas
+{
+public:
+    Vsp_Canvas(int x, int y, int w, int h, const char *label=0);
+
+    int handle( int event );
+};
+
+
+
 class GuiDevice
 {
 public:
@@ -165,6 +181,7 @@ public:
     ParmButton();
     virtual void Init( VspScreen* screen, VspButton* button );
     virtual void Update( const string& parm_id );
+    virtual void UpdateButtonName( const string & name );
     virtual void DeviceCB( Fl_Widget* w );
     virtual void SetButtonNameUpdate( bool flag )   { m_ButtonNameUpdate = flag; }
 
@@ -215,6 +232,20 @@ public:
     virtual void SetRange( double range )
     {
         m_Range = range;
+    }
+
+    virtual void SetMinBound( double minb )
+    {
+        m_MinBound = minb;
+        m_Range = m_MaxBound - m_MinBound;
+        m_Slider->bounds( m_MinBound, m_MaxBound );
+    }
+
+    virtual void SetMaxBound( double maxb )
+    {
+        m_MaxBound = maxb;
+        m_Range = m_MaxBound - m_MinBound;
+        m_Slider->bounds( m_MinBound, m_MaxBound );
     }
 
 protected:
@@ -357,6 +388,7 @@ public:
     virtual ~ToggleRadioGroup()         {}
     virtual void Init( VspScreen* screen );
     virtual void AddButton( Fl_Button* button );
+    virtual void ClearButtons();
     virtual void DeviceCB( Fl_Widget* w );
 
     virtual void SetValMapVec( vector< int > & val_map_vec );
@@ -425,16 +457,31 @@ public:
     {
         m_Items.push_back( item );
     }
+
+    virtual void SetFlag( int indx, int flag );
+    virtual int GetFlag( int indx );
+    virtual void ClearFlags();
+
     virtual vector< string > GetItems()
     {
         return m_Items;
     }
-    virtual void UpdateItems();
+    virtual void UpdateItems( bool keepsetting = false );
+
     virtual void SetButtonNameUpdate( bool flag )
     {
         m_ParmButton.SetButtonNameUpdate( flag );
     }
     virtual void SetWidth( int w );
+    virtual void SetOffset( int o )
+    {
+        m_Offset = o;
+    }
+
+    virtual Fl_Choice* GetFlChoice()
+    {
+        return m_Choice;
+    }
 
 
 protected:
@@ -447,7 +494,9 @@ protected:
     ParmButton m_ParmButton;
 
     vector< string > m_Items;
+    vector< int > m_Flags;
 
+    int m_Offset;
 
 };
 
@@ -505,9 +554,21 @@ public:
     {
         m_Slider.SetRange( range );
     }
+    virtual void SetMinBound( double minb )
+    {
+        m_Slider.SetMinBound( minb );
+    }
+    virtual void SetMaxBound( double maxb )
+    {
+        m_Slider.SetMaxBound( maxb );
+    }
     virtual void SetFormat( const char* format )
     {
         m_Input.SetFormat( format );
+    }
+    virtual void SetButtonName( const string & name )
+    {
+        m_ParmButton.UpdateButtonName( name );
     }
     virtual void SetButtonNameUpdate( bool flag )
     {
@@ -811,8 +872,6 @@ public:
 
     virtual void Update( );
 
-    void BuildLinkableParmData();
-
     vector< string > FindParmNames( vector< string > & parm_id_vec );
 
     string GetParmChoice()
@@ -1045,6 +1104,9 @@ public:
     virtual void AddExcludeType( int type );
     virtual void ClearExcludeType();
 
+    virtual void AddIncludeType( int type );
+    virtual void ClearIncludeType();
+
     string GetGeomChoice()
     {
         return m_GeomIDChoice;
@@ -1067,6 +1129,59 @@ protected:
     Vehicle * m_Vehicle;
 
     vector < int > m_ExcludeTypes;
+    vector < int > m_IncludeTypes;
+
+};
+
+class PCurveEditor : public GuiDevice
+{
+public:
+
+    PCurveEditor();
+
+    virtual void Init( VspScreen* screen, Vsp_Canvas* canvas, Fl_Scroll *ptscroll, Fl_Button *spbutton, Fl_Button *convbutton, Fl_Light_Button *deletebutton, Fl_Light_Button *splitpickutton, GroupLayout *scLayout );
+
+    virtual void DeviceCB( Fl_Widget* w );
+
+    virtual void Update( PCurve *curve );
+
+    virtual bool hittest( int mx, int my, double datax, double datay, int r );
+
+    virtual int ihit( int mx, int my, int r );
+
+    SliderInput m_SplitPtSlider;
+    Fl_Button* m_SplitButton;
+
+    Fl_Light_Button* m_DeleteButton;
+    Fl_Light_Button* m_SplitPickButton;
+
+    Choice m_ConvertChoice;
+    Fl_Button* m_ConvertButton;
+    StringOutput m_CurveType;
+
+protected:
+
+    virtual void SetValAndLimits( Parm* parm_ptr )      {}
+
+    int m_LastHit;
+
+    PCurve *m_Curve;
+
+    Vsp_Canvas* m_canvas;
+
+    Fl_Scroll* m_PtScroll;
+
+    GroupLayout* m_PtLayout;
+
+    vector < SliderAdjRangeInput > m_XPtSliderVec;
+    vector < SliderAdjRangeInput > m_YPtSliderVec;
+
+    bool m_FreezeAxis;
+
+    bool m_DeleteActive;
+    bool m_SplitActive;
+
+    virtual void Update();
 
 };
 

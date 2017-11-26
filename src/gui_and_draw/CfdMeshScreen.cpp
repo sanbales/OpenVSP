@@ -9,7 +9,6 @@
 
 #include "CfdMeshScreen.h"
 #include "CfdMeshMgr.h"
-#include "StreamUtil.h"
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -153,8 +152,8 @@ void CfdMeshScreen::CreateOutputTab()
     m_OutputTabLayout.SetFitWidthFlag( false );
     m_OutputTabLayout.SetSameLineFlag( true );
 
-    m_OutputTabLayout.SetButtonWidth(50);
-    m_OutputTabLayout.SetInputWidth(305);
+    m_OutputTabLayout.SetButtonWidth(55);
+    m_OutputTabLayout.SetInputWidth(300);
     m_OutputTabLayout.AddButton(m_StlFile, ".stl");
     m_OutputTabLayout.AddOutput(m_StlOutput);
     m_OutputTabLayout.AddButton(m_SelectStlFile, "...");
@@ -173,6 +172,10 @@ void CfdMeshScreen::CreateOutputTab()
     m_OutputTabLayout.AddButton(m_TriFile, ".tri");
     m_OutputTabLayout.AddOutput(m_TriOutput);
     m_OutputTabLayout.AddButton(m_SelectTriFile, "...");
+    m_OutputTabLayout.ForceNewLine();
+    m_OutputTabLayout.AddButton( m_FacFile, ".facet" );
+    m_OutputTabLayout.AddOutput( m_FacOutput );
+    m_OutputTabLayout.AddButton( m_SelectFacFile, "..." );
     m_OutputTabLayout.ForceNewLine();
     m_OutputTabLayout.AddButton(m_ObjFile, ".obj");
     m_OutputTabLayout.AddOutput(m_ObjOutput);
@@ -207,6 +210,11 @@ void CfdMeshScreen::CreateOutputTab()
     m_OutputTabLayout.AddButton(m_SrfFile, ".srf");
     m_OutputTabLayout.AddOutput(m_SrfOutput);
     m_OutputTabLayout.AddButton(m_SelectSrfFile, "...");
+    m_OutputTabLayout.ForceNewLine();
+
+    m_OutputTabLayout.SetFitWidthFlag( true );
+    m_OutputTabLayout.AddButton( m_XYZIntCurves, "Include X,Y,Z Intersection Curves");
+    m_OutputTabLayout.SetFitWidthFlag( false );
     m_OutputTabLayout.ForceNewLine();
     m_OutputTabLayout.AddYGap();
 
@@ -451,6 +459,15 @@ bool CfdMeshScreen::Update()
 {
     LoadSetChoice();
 
+    if ( CfdMeshMgr.GetMeshInProgress() )
+    {
+        m_MeshAndExport.Deactivate();
+    }
+    else
+    {
+        m_MeshAndExport.Activate();
+    }
+
     CfdMeshMgr.UpdateSourcesAndWakes();
     CfdMeshMgr.UpdateDomain();
 
@@ -610,6 +627,8 @@ void CfdMeshScreen::UpdateOutputTab()
     m_PolyOutput.Update( truncateFileName( polyname, 40 ).c_str() );
     string triname = CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileName( vsp::CFD_TRI_FILE_NAME );
     m_TriOutput.Update( truncateFileName( triname, 40 ).c_str() );
+    string facname = CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileName( vsp::CFD_FACET_FILE_NAME );
+    m_FacOutput.Update( truncateFileName( facname, 40 ).c_str() );
     string objname = CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileName( vsp::CFD_OBJ_FILE_NAME );
     m_ObjOutput.Update( truncateFileName( objname, 40 ).c_str() );
     string gmshname = CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileName( vsp::CFD_GMSH_FILE_NAME );
@@ -628,11 +647,13 @@ void CfdMeshScreen::UpdateOutputTab()
     m_TaggedMultiSolid.Update( m_Vehicle->m_STLMultiSolid.GetID() );
     m_PolyFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_POLY_FILE_NAME )->GetID() );
     m_TriFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_TRI_FILE_NAME )->GetID() );
+    m_FacFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_FACET_FILE_NAME )->GetID() );
     m_ObjFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_OBJ_FILE_NAME )->GetID() );
     m_MshFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_GMSH_FILE_NAME )->GetID() );
     m_DatFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_DAT_FILE_NAME )->GetID() );
     m_KeyFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_KEY_FILE_NAME )->GetID() );
     m_SrfFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_SRF_FILE_NAME )->GetID() );
+    m_XYZIntCurves.Update( CfdMeshMgr.GetCfdSettingsPtr()->m_XYZIntCurveFlag.GetID() );
     m_TkeyFile.Update( CfdMeshMgr.GetCfdSettingsPtr()->GetExportFileFlag( vsp::CFD_TKEY_FILE_NAME)->GetID() );
 }
 
@@ -804,9 +825,8 @@ void CfdMeshScreen::LoadSetChoice()
 void CfdMeshScreen::AddOutputText( const string &text )
 {
     m_ConsoleBuffer->append( text.c_str() );
-    m_ConsoleDisplay->move_down();
+    m_ConsoleDisplay->insert_position( m_ConsoleDisplay->buffer()->length() );
     m_ConsoleDisplay->show_insert_position();
-    Fl::flush();
 }
 
 string CfdMeshScreen::truncateFileName( const string &fn, int len )
@@ -857,6 +877,63 @@ void CfdMeshScreen::CloseCallBack( Fl_Widget *w )
     Hide();
 }
 
+#ifdef WIN32
+DWORD WINAPI cfdmonitorfun( LPVOID data )
+#else
+void * cfdmonitorfun( void *data )
+#endif
+{
+    CfdMeshScreen *cs = ( CfdMeshScreen * ) data;
+
+    if( cs )
+    {
+        unsigned long nread = 1;
+
+        bool running = true;
+
+        while( running || nread > 0 )
+        {
+            running = CfdMeshMgr.GetMeshInProgress();
+            nread = 0;
+
+            int ig = CfdMeshMgr.m_OutStream.tellg();
+            CfdMeshMgr.m_OutStream.seekg( 0, CfdMeshMgr.m_OutStream.end );
+            nread = (int)(CfdMeshMgr.m_OutStream.tellg()) - ig;
+            CfdMeshMgr.m_OutStream.seekg( ig );
+
+            if( nread > 0 )
+            {
+                char * buffer = new char [nread+1];
+
+                CfdMeshMgr.m_OutStream.read( buffer, nread );
+                buffer[nread]=0;
+
+                Fl::lock();
+                // Any FL calls must occur between Fl::lock() and Fl::unlock().
+                cs->AddOutputText( buffer );
+                Fl::unlock();
+
+                delete[] buffer;
+            }
+            SleepForMilliseconds( 100 );
+        }
+        cs->GetScreenMgr()->SetUpdateFlag( true );
+    }
+
+    return 0;
+}
+
+#ifdef WIN32
+DWORD WINAPI cfdmesh_thread_fun( LPVOID data )
+#else
+void * cfdmesh_thread_fun( void *data )
+#endif
+{
+    CfdMeshMgr.GenerateMesh();
+
+    return 0;
+}
+
 void CfdMeshScreen::GuiDeviceCallBack( GuiDevice* device )
 {
     assert( m_ScreenMgr );
@@ -869,11 +946,10 @@ void CfdMeshScreen::GuiDeviceCallBack( GuiDevice* device )
 
     if ( device == &m_MeshAndExport )
     {
-        redirecter redir( std::cout, CfdMeshMgr.m_OutStream );
-        CfdMeshMgr.GenerateMesh();
+        CfdMeshMgr.SetMeshInProgress( true );
+        m_CFDMeshProcess.StartThread( cfdmesh_thread_fun, NULL );
 
-        // Hide all geoms.
-        m_Vehicle->HideAll();
+        m_MonitorProcess.StartThread( cfdmonitorfun, ( void* ) this );
     }
 
     m_ScreenMgr->SetUpdateFlag( true );
@@ -945,6 +1021,14 @@ void CfdMeshScreen::GuiDeviceOutputTabCallback( GuiDevice* device )
         if ( newfile.compare( "" ) != 0 )
         {
             CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( newfile, vsp::CFD_TRI_FILE_NAME );
+        }
+    }
+    else if ( device == &m_SelectFacFile )
+    {
+        string newfile = m_ScreenMgr->GetSelectFileScreen()->FileChooser( "Select .facet file.", "*.facet" );
+        if ( newfile.compare( "" ) != 0 )
+        {
+            CfdMeshMgr.GetCfdSettingsPtr()->SetExportFileName( newfile, vsp::CFD_FACET_FILE_NAME );
         }
     }
     else if ( device == &m_SelectObjFile  )

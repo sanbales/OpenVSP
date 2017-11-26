@@ -6,17 +6,13 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "GuiDevice.h"
-#include "Parm.h"
 #include "ParmMgr.h"
 #include "ScreenBase.h"
 #include "ScreenMgr.h"
 #include "LinkMgr.h"
 #include "AdvLinkMgr.h"
 #include "StlHelper.h"
-
-#include <float.h>
-#include <assert.h>
-#include <cmath>
+#include "Util.h"
 
 using std::max;
 using std::min;
@@ -65,8 +61,6 @@ Vsp_Group::Vsp_Group( int x, int y, int w, int h ) : Fl_Group( x, y, w, h )
 
 int Vsp_Group::handle(int event)
 {
-    int ret = Fl_Group::handle(event);
-
     if( m_AllowDrop )
     {
         switch ( event )
@@ -74,18 +68,41 @@ int Vsp_Group::handle(int event)
         case FL_DND_ENTER:
         case FL_DND_DRAG:
         case FL_DND_RELEASE:
-            ret = 1;
+            return 1;
             break;
         case FL_PASTE:
             if( callback() )
             {
                 do_callback();
             }
-            ret = 1;
+            return 1;
             break;
         }
     }
-    return ret;
+
+    return Fl_Group::handle(event);
+}
+
+Vsp_Canvas::Vsp_Canvas( int x, int y, int w, int h, const char *label ) : Ca_Canvas( x, y, w, h, label )
+{
+
+}
+
+int Vsp_Canvas::handle( int event )
+{
+    switch ( event )
+    {
+    case FL_PUSH:
+    case FL_RELEASE:
+    case FL_DRAG:
+        if( callback() )
+        {
+            do_callback();
+        }
+        return 1;
+        break;
+    }
+    return Ca_Canvas::handle( event );
 }
 
 //=====================================================================//
@@ -169,7 +186,7 @@ bool GuiDevice::CheckValUpdate( double val )
         return true;
     }
 
-    if ( fabs( val - m_LastVal ) < DBL_EPSILON )
+    if ( std::abs( val - m_LastVal ) < DBL_EPSILON )
     {
         return false;
     }
@@ -510,11 +527,11 @@ void SliderAdjRange::SetValAndLimits( Parm* parm_ptr )
 
     if ( m_NewParmFlag || new_val < m_MinBound || new_val > m_MaxBound )
     {
-        if ( fabs( new_val - parm_ptr->GetLowerLimit() ) < m_Tol )
+        if ( std::abs( new_val - parm_ptr->GetLowerLimit() ) < m_Tol )
         {
             m_MinStopState = SAR_ABS_STOP;
         }
-        if ( fabs( new_val - parm_ptr->GetUpperLimit() ) < m_Tol )
+        if ( std::abs( new_val - parm_ptr->GetUpperLimit() ) < m_Tol )
         {
             m_MaxStopState = SAR_ABS_STOP;
         }
@@ -576,12 +593,12 @@ void SliderAdjRange::FindStopState( Parm* parm_ptr )
 {
     double val = parm_ptr->Get();
 
-    if ( fabs( val - parm_ptr->GetLowerLimit() ) < m_Tol )
+    if ( std::abs( val - parm_ptr->GetLowerLimit() ) < m_Tol )
     {
         m_MinStopState = SAR_ABS_STOP;
         m_MinButton->label( "|" );
     }
-    else if ( fabs( val - m_MinBound ) < m_Tol )
+    else if ( std::abs( val - m_MinBound ) < m_Tol )
     {
         m_MinStopState = SAR_STOP;
         m_MinButton->label( "<" );
@@ -591,12 +608,12 @@ void SliderAdjRange::FindStopState( Parm* parm_ptr )
         m_MinStopState = SAR_NO_STOP;
         m_MinButton->label( ">" );
     }
-    if ( fabs( val - parm_ptr->GetUpperLimit() ) < m_Tol )
+    if ( std::abs( val - parm_ptr->GetUpperLimit() ) < m_Tol )
     {
         m_MaxStopState = SAR_ABS_STOP;
         m_MaxButton->label( "|" );
     }
-    else if ( fabs( val - m_MaxBound ) < m_Tol )
+    else if ( std::abs( val - m_MaxBound ) < m_Tol )
     {
         m_MaxStopState = SAR_STOP;
         m_MaxButton->label( ">" );
@@ -846,6 +863,12 @@ void ParmButton::Update( const string& parm_id )
     }
 }
 
+//==== Update Name ====//
+void ParmButton::UpdateButtonName( const string & name )
+{
+    m_Button->copy_label( name.c_str() );
+}
+
 //==== Set Slider Value and Limits =====//
 void ParmButton::SetValAndLimits( Parm* )
 {
@@ -913,7 +936,7 @@ void CheckButton::SetValAndLimits( Parm* p )
 
     BoolParm* bparm = dynamic_cast< BoolParm* >( p );
     assert( bparm );
-    if ( bparm->Get() == true )
+    if ( bparm->Get() )
     {
         m_Button->value( 1 );
     }
@@ -1157,8 +1180,15 @@ void ToggleRadioGroup::Init( VspScreen* screen )
 void ToggleRadioGroup::AddButton( Fl_Button* button )
 {
     assert( button );
+    AddWidget(button);
     m_ButtonVec.push_back( button );
     button->callback( StaticDeviceCB, this );
+}
+
+void ToggleRadioGroup::ClearButtons()
+{
+    ClearAllWidgets();
+    m_ButtonVec.clear();
 }
 
 //==== Set Button Value ====//
@@ -1354,6 +1384,7 @@ Choice::Choice( ) : GuiDevice()
 {
     m_Type = GDEV_CHOICE;
     m_Choice = NULL;
+    m_Offset = 0;
 }
 
 //==== Init ====//
@@ -1388,9 +1419,14 @@ void Choice::SetValAndLimits( Parm* p )
 
     IntParm* iparm = dynamic_cast< IntParm* >( p );
     assert( iparm );
+    if ( !iparm )
+    {
+        return;
+    }
+
     int val = iparm->Get();
 
-    m_Choice->value( val );
+    m_Choice->value( val - m_Offset );
 
     if ( m_ParmButtonFlag )
     {
@@ -1403,27 +1439,75 @@ void Choice::SetValAndLimits( Parm* p )
 void Choice::SetVal( int val )
 {
     assert( m_Choice );
-    m_Choice->value( val );
+    m_Choice->value( val - m_Offset );
 }
 
 //==== Get Current Choice Val ====//
 int Choice::GetVal()
 {
     assert( m_Choice );
-    return m_Choice->value();
+    return m_Choice->value() + m_Offset;
 }
 
- void Choice::UpdateItems()
- {
+void Choice::SetFlag( int indx, int flag )
+{
+    if ( m_Flags.size() != m_Items.size() )
+    {
+        m_Flags.resize( m_Items.size(), 0 );
+    }
+
+    if ( indx < m_Flags.size() )
+    {
+        m_Flags[indx] = flag;
+    }
+}
+
+int Choice::GetFlag( int indx )
+{
+    if ( m_Flags.size() != m_Items.size() )
+    {
+        m_Flags.resize( m_Items.size(), 0 );
+    }
+
+    if ( indx < m_Flags.size() )
+    {
+        return m_Flags[indx];
+    }
+
+    return 0;
+}
+
+void Choice::ClearFlags()
+{
+    m_Flags.clear();
+    m_Flags.resize( m_Items.size(), 0 );
+}
+
+void Choice::UpdateItems( bool keepsetting )
+{
+    if ( m_Flags.size() != m_Items.size() )
+    {
+        m_Flags.resize( m_Items.size(), 0 );
+    }
+
+    int savesetting = m_Choice->value();
+
     //==== Add Choice Text ===//
     m_Choice->clear();
     for ( int i = 0 ; i < ( int )m_Items.size() ; i++ )
     {
-        m_Choice->add( m_Items[i].c_str() );
+        m_Choice->add( m_Items[i].c_str(), 0, 0, 0, m_Flags[i] );
     }
-    m_Choice->value( 0 );
- }
 
+    if( keepsetting )
+    {
+        m_Choice->value( savesetting );
+    }
+    else
+    {
+        m_Choice->value( 0 );
+    }
+}
 
 //==== CallBack ====//
 void Choice::DeviceCB( Fl_Widget* w )
@@ -1433,7 +1517,7 @@ void Choice::DeviceCB( Fl_Widget* w )
 
     if ( w == m_Choice && parm_ptr )
     {
-        int new_val = m_Choice->value();
+        int new_val = m_Choice->value() + m_Offset;
         parm_ptr->SetFromDevice( new_val );
     }
 
@@ -1634,9 +1718,18 @@ void StringInput::Init( VspScreen* screen, Fl_Input* input )
 
     assert( input );
     m_Input = input;
-    //jrg - I changed this because of a crash when input does not callback until a Fl_Choice is pressed
-//    m_Input->when( FL_WHEN_ENTER_KEY | FL_WHEN_RELEASE );
-    m_Input->when(  FL_WHEN_CHANGED );
+    m_Input->when( FL_WHEN_ENTER_KEY | FL_WHEN_RELEASE );
+
+// JR changed the above line to the below (and added the following comment) between 2.9.7 and 2.9.8
+// in commit 7e27e2a8eb2b.
+//
+// FLTK was updated between 3.9.1 and 3.10.0, which may have changed the observed behavior.
+// GitHub issue #64 is resolved by reverting to the above line.  Though #64 mentions the problem
+// in 3.9.1, it is possible that version was actually compiled with the newer FLTK.
+
+//jrg - I changed this because of a crash when input does not callback until a Fl_Choice is pressed
+//    m_Input->when(  FL_WHEN_CHANGED );
+
     m_Input->callback( StaticDeviceCB, this );
 }
 
@@ -2397,8 +2490,6 @@ void ParmTreePicker::CleanGarbage()
 void ParmTreePicker::UpdateParmTree()
 {
     int i, j;
-    ContainerTreeIt cit;
-    ParmTreeIt pit;
 
     ResetFlag( true );
 
@@ -2526,7 +2617,7 @@ void ParmTreePicker::UpdateParmTree()
 
                         if ( groupids.size() > 1 )
                         {
-                            printf("Error: multiple same-name groups where there shouldn't be any.\n");
+                            printf("Error: multiple same-name groups where there shouldn't be any. \n\tFile: %s \tLine:%d\n",__FILE__,__LINE__);
                         }
 
                         AddParmEntry( pID, (*cit).second, (*cit).second.m_GroupVec[groupid].m_TreeItemPtr );
@@ -2787,7 +2878,7 @@ void SkinControl::DeactivateRight()
 
 void SkinControl::DeactivateEqual()
 {
-	m_SetButtonEqual.Deactivate();
+    m_SetButtonEqual.Deactivate();
 }
 
 void SkinControl::DeactivateSet()
@@ -2838,6 +2929,11 @@ void SkinHeader::Init( VspScreen* screen,
 
 void SkinHeader::Activate()
 {
+    if ( !m_ContChoice )
+    {
+        return;
+    }
+
     assert( m_ContChoice );
     m_ContChoice->Activate();
 
@@ -2850,6 +2946,11 @@ void SkinHeader::Activate()
 
 void SkinHeader::Deactivate()
 {
+    if ( !m_ContChoice )
+    {
+        return;
+    }
+
     assert( m_ContChoice );
     m_ContChoice->Deactivate();
 
@@ -2862,6 +2963,11 @@ void SkinHeader::Deactivate()
 
 void SkinHeader::DeactiveContChoice()
 {
+    if ( !m_ContChoice )
+    {
+        return;
+    }
+
     assert( m_ContChoice );
     m_ContChoice->Deactivate();
 }
@@ -2949,23 +3055,45 @@ void GeomPicker::Update( )
         Geom* g = m_Vehicle->FindGeom( allGeomVec[i] );
         if ( g )
         {
-            bool match = false;
+            bool excludematch = false;
 
             for ( int j = 0; j < m_ExcludeTypes.size(); j++ )
             {
                 if ( g->GetType().m_Type == m_ExcludeTypes[j] )
                 {
-                    match = true;
+                    excludematch = true;
+                    break;
                 }
             }
 
-            if ( !match )
+            if ( !excludematch )
             {
-                m_GeomVec.push_back( allGeomVec[i] );
+                bool includematch = false;
 
-                char str[256];
-                sprintf( str, "%d_%s", i, g->GetName().c_str() );
-                m_GeomChoice->add( str );
+                if ( m_IncludeTypes.size() > 0 )
+                {
+                    for ( int j = 0; j < m_IncludeTypes.size(); j++ )
+                    {
+                        if ( g->GetType().m_Type == m_IncludeTypes[j] )
+                        {
+                            includematch = true;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    includematch = true;
+                }
+
+                if ( includematch )
+                {
+                    m_GeomVec.push_back( allGeomVec[i] );
+
+                    char str[256];
+                    sprintf( str, "%d_%s", i, g->GetName().c_str() );
+                    m_GeomChoice->add( str );
+                }
             }
         }
     }
@@ -3016,4 +3144,396 @@ void GeomPicker::AddExcludeType( int type )
 void GeomPicker::ClearExcludeType()
 {
     m_ExcludeTypes.clear();
+}
+
+void GeomPicker::AddIncludeType( int type )
+{
+    m_IncludeTypes.push_back( type );
+}
+
+void GeomPicker::ClearIncludeType()
+{
+    m_IncludeTypes.clear();
+}
+
+//=====================================================================//
+//===========            PCurve Editor                      ===========//
+//=====================================================================//
+
+PCurveEditor::PCurveEditor()
+{
+    m_Curve = NULL;
+
+    m_canvas = NULL;
+    m_PtLayout = NULL;
+
+    m_LastHit = -1;
+
+    m_FreezeAxis = false;
+    m_DeleteActive = false;
+    m_SplitActive = false;
+}
+
+void PCurveEditor::Init( VspScreen* screen, Vsp_Canvas* canvas, Fl_Scroll* ptscroll, Fl_Button *spbutton, Fl_Button *convbutton, Fl_Light_Button *deletebutton, Fl_Light_Button *splitpickbutton, GroupLayout *ptlayout )
+{
+    GuiDevice::Init( screen );
+
+    m_canvas = canvas;
+    m_PtScroll = ptscroll;
+    m_SplitButton = spbutton;
+    m_ConvertButton = convbutton;
+    m_DeleteButton = deletebutton;
+    m_SplitPickButton = splitpickbutton;
+    m_PtLayout = ptlayout;
+
+    m_canvas->callback( StaticDeviceCB, this );
+    m_SplitButton->callback( StaticDeviceCB, this );
+    m_DeleteButton->callback( StaticDeviceCB, this );
+    m_SplitPickButton->callback( StaticDeviceCB, this );
+    m_ConvertButton->callback( StaticDeviceCB, this );
+}
+
+
+void PCurveEditor::DeviceCB( Fl_Widget* w )
+{
+    if ( Fl::event_inside( m_canvas ) )
+    {
+    }
+
+    if ( w == m_canvas )
+    {
+        int x = Fl::event_x();
+        int y = Fl::event_y();
+
+        if ( Fl::event() == FL_PUSH )
+        {
+            m_LastHit = ihit( x, y, 5 );
+
+            if ( m_DeleteActive )
+            {
+                m_DeleteActive = false;
+
+                if ( m_LastHit >= 0 )
+                {
+                    m_Curve->DeletePt( m_LastHit );
+                }
+            }
+
+            if ( m_SplitActive )
+            {
+                m_SplitActive = false;
+
+                double sx = m_canvas->current_x()->value( x );
+
+                if ( sx > m_Curve->GetRFirst() && sx < m_Curve->GetRLast() )
+                {
+                    m_Curve->m_SplitPt = sx;
+                    m_Curve->Split();
+                }
+            }
+        }
+
+        if ( Fl::event() == FL_DRAG && m_LastHit != -1 )
+        {
+            m_Curve->SetPt( m_canvas->current_x()->value( x ), m_canvas->current_y()->value( y ), m_LastHit );
+            m_FreezeAxis = true;
+        }
+
+        if ( Fl::event() == FL_RELEASE )
+        {
+            m_FreezeAxis = false;
+        }
+    }
+    else if ( w == m_SplitButton )
+    {
+        m_Curve->Split();
+    }
+    else if ( w == m_ConvertButton )
+    {
+        m_Curve->ConvertTo( m_Curve->m_ConvType() );
+    }
+    else if ( w == m_DeleteButton )
+    {
+        m_DeleteActive = !m_DeleteActive;
+        if ( m_DeleteActive )
+        {
+            m_SplitActive = false;
+        }
+    }
+    else if ( w == m_SplitPickButton )
+    {
+        m_SplitActive = !m_SplitActive;
+        if ( m_SplitActive )
+        {
+            m_DeleteActive = false;
+        }
+    }
+
+    m_Screen->GuiDeviceCallBack( this );
+}
+
+
+void PCurveEditor::Update( PCurve *curve )
+{
+    m_Curve = curve;
+    Update();
+}
+
+void PCurveEditor::Update()
+{
+    if ( m_Curve && m_canvas )
+    {
+        Vsp_Canvas::current( m_canvas );
+        m_canvas->clear();
+
+
+        vector < double > xt;
+        vector < double > yt;
+
+        m_Curve->Tessellate( xt, yt );
+
+
+        m_DeleteButton->value( m_DeleteActive );
+        m_SplitPickButton->value( m_SplitActive );
+
+
+        //add the data to the plot
+        AddPointLine( xt, yt, 2, FL_BLUE );
+
+        vector < double > xdata = m_Curve->GetTVec();
+        vector < double > ydata = m_Curve->GetValVec();
+
+        int ndata = xdata.size();
+
+        if ( ndata > 0 )
+        {
+            if ( m_Curve->m_CurveType() != vsp::CEDIT )
+            {
+                AddPoint( xdata, ydata, FL_BLACK, 4, CA_DIAMOND );
+            }
+            else
+            {
+                int nseg = ( ndata - 1 ) / 3;
+
+                vector < double > xend( nseg + 1 ); // Cubic segment endpoints
+                vector < double > yend( nseg + 1 );
+
+                vector < double > xmid( 2 * nseg ); // Cubic segment midpoints
+                vector < double > ymid( 2 * nseg );
+
+                int imid = 0;
+                int iend = 0;
+
+                for ( int i = 0; i < ndata; i++ )
+                {
+                    if ( ( i % 3 ) == 0)
+                    {
+                        xend[ iend ] = xdata[ i ];
+                        yend[ iend ] = ydata[ i ];
+                        iend++;
+
+                        if ( i != 0 )
+                        {
+                            vector < double > xtan( 2 );
+                            vector < double > ytan( 2 );
+                            xtan[ 0 ] = xdata[ i - 1 ];
+                            xtan[ 1 ] = xdata[ i ];
+                            ytan[ 0 ] = ydata[ i - 1 ];
+                            ytan[ 1 ] = ydata[ i ];
+
+                            AddPointLine( xtan, ytan, 1, FL_GRAY0 );
+                        }
+
+                        if ( i != ndata - 1 )
+                        {
+                            vector < double > xtan( 2 );
+                            vector < double > ytan( 2 );
+                            xtan[ 0 ] = xdata[ i ];
+                            xtan[ 1 ] = xdata[ i + 1 ];
+                            ytan[ 0 ] = ydata[ i ];
+                            ytan[ 1 ] = ydata[ i + 1 ];
+
+                            AddPointLine( xtan, ytan, 1, FL_GRAY0 );
+                        }
+                    }
+                    else
+                    {
+                        xmid[ imid ] = xdata[ i ];
+                        ymid[ imid ] = ydata[ i ];
+                        imid++;
+                    }
+                }
+
+                AddPoint( xend, yend, FL_BLACK, 4, CA_DIAMOND );
+                AddPoint( xmid, ymid, FL_GREEN, 4, CA_ROUND );
+            }
+        }
+
+        if ( ! m_FreezeAxis )
+        {
+            double xmin, xmax, ymin, ymax;
+
+            xmin = xt[0];
+            xmax = xmin;
+            ymin = yt[0];
+            ymax = ymin;
+            for ( int i = 1; i < xt.size(); i++ )
+            {
+                if ( xt[i] < xmin )
+                {
+                    xmin = xt[i];
+                }
+                if ( xt[i] > xmax )
+                {
+                    xmax = xt[i];
+                }
+                if ( yt[i] < ymin )
+                {
+                    ymin = yt[i];
+                }
+                if ( yt[i] > ymax )
+                {
+                    ymax = yt[i];
+                }
+            }
+
+            for ( int i = 0; i < xdata.size(); i++ )
+            {
+                if ( xdata[i] < xmin )
+                {
+                    xmin = xdata[i];
+                }
+                if ( xdata[i] > xmax )
+                {
+                    xmax = xdata[i];
+                }
+                if ( ydata[i] < ymin )
+                {
+                    ymin = ydata[i];
+                }
+                if ( ydata[i] > ymax )
+                {
+                    ymax = ydata[i];
+                }
+            }
+
+            xmin = magrounddn( xmin );
+            xmax = magroundup( xmax );
+            if ( xmin == xmax )
+            {
+                xmin -= 1;
+                xmax += 1;
+            }
+            ymin = magrounddn( ymin );
+            ymax = magroundup( ymax );
+            if ( ymin == ymax )
+            {
+                ymin -= 1;
+                ymax += 1;
+            }
+
+            m_canvas->current_x()->minimum( xmin );
+            m_canvas->current_x()->maximum( xmax );
+            m_canvas->current_x()->copy_label( m_Curve->GetXDsipName().c_str() );
+
+            m_canvas->current_y()->minimum( ymin );
+            m_canvas->current_y()->maximum( ymax );
+            m_canvas->current_y()->copy_label( m_Curve->GetYDsipName().c_str() );
+        }
+
+        int n = m_Curve->GetNumPts();
+
+        m_SplitPtSlider.Update( m_Curve->m_SplitPt.GetID() );
+
+        m_ConvertChoice.Update( m_Curve->m_ConvType.GetID() );
+
+        switch( m_Curve->m_CurveType() )
+        {
+        case vsp::LINEAR:
+            m_CurveType.Update( "Linear" );
+            break;
+        case vsp::PCHIP:
+            m_CurveType.Update( "Spline (PCHIP)" );
+            break;
+        case vsp::CEDIT:
+            m_CurveType.Update( "Cubic Bezier" );
+            break;
+        }
+
+        if ( n != m_XPtSliderVec.size() )
+        {
+            m_PtScroll->clear();
+            m_PtLayout->SetGroup( m_PtScroll );
+            m_PtLayout->InitWidthHeightVals();
+            m_PtLayout->SetButtonWidth( 50 );
+
+            m_XPtSliderVec.clear();
+            m_YPtSliderVec.clear();
+
+            m_XPtSliderVec.resize( n );
+            m_YPtSliderVec.resize( n );
+
+            m_PtLayout->SetSameLineFlag( true );
+
+            for ( int i = 0; i < n; i++ )
+            {
+                m_PtLayout->AddSlider( m_XPtSliderVec[i], "AUTO_UPDATE", 2, "%9.5f", m_PtLayout->GetW() / 2.0 + 2 );
+                m_PtLayout->AddX( 4 );
+                m_PtLayout->AddSlider( m_YPtSliderVec[i], "AUTO_UPDATE", 2, "%9.5f" );
+                m_PtLayout->ForceNewLine();
+            }
+        }
+
+
+        for ( int i = 0; i < n; i++ )
+        {
+            Parm *p = m_Curve->m_TParmVec[i];
+            if ( p )
+            {
+                m_XPtSliderVec[i].Update( p->GetID() );
+            }
+        }
+
+        for ( int i = 0; i < n; i++ )
+        {
+            Parm *p = m_Curve->m_ValParmVec[i];
+            if ( p )
+            {
+                m_YPtSliderVec[i].Update( p->GetID() );
+            }
+        }
+
+
+    }
+}
+
+bool PCurveEditor::hittest( int mx, int my, double datax, double datay, int r )
+{
+    if ( m_canvas )
+    {
+        int dx = std::abs( m_canvas->current_x()->position( datax ) - mx );
+        int dy = std::abs( m_canvas->current_y()->position( datay ) - my );
+
+        if ( dx < r && dy < r )
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+int PCurveEditor::ihit( int mx, int my, int r )
+{
+    vector < double > xdata = m_Curve->GetTVec();
+    vector < double > ydata = m_Curve->GetValVec();
+
+    for ( int i = 0; i < xdata.size(); i++ )
+    {
+        if ( hittest( mx, my, xdata[i], ydata[i], r ) )
+        {
+            return i;
+        }
+    }
+
+    return -1;
 }

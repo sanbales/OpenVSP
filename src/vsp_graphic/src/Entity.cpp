@@ -4,7 +4,6 @@
 
 #include "Entity.h"
 
-#include "Material.h"
 #include "Lighting.h"
 #include "VertexBuffer.h"
 #include "ColorBuffer.h"
@@ -58,7 +57,7 @@ void Entity::setMaterial( float ambi[], float diff[], float spec[], float emis[]
 
 bool Entity::isTransparent()
 {
-    return _material.diffuse[3] < 1.0 ? true : false;
+    return _material.diffuse[3] < 1.0;
 }
 
 void Entity::_predraw()

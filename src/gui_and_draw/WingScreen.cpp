@@ -7,23 +7,17 @@
 
 #include "WingScreen.h"
 #include "ScreenMgr.h"
-#include "WingGeom.h"
-#include "EventMgr.h"
-#include "Vehicle.h"
 #include "ParmMgr.h"
 #include "StlHelper.h"
-#include "APIDefines.h"
-
-#include <assert.h>
 
 using namespace vsp;
 
 //==== Constructor ====//
-WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
+WingScreen::WingScreen( ScreenMgr* mgr ) : BlendScreen( mgr, 400, 680, "Wing" )
 {
     m_CurrDisplayGroup = NULL;
 
-    Fl_Group* plan_tab = AddTab( "Plan" );
+    Fl_Group* plan_tab = AddTab( "Plan", 3 );
     Fl_Group* plan_group = AddSubGroup( plan_tab, 5 );
 
     m_PlanLayout.SetGroupAndScreen( plan_group, this );
@@ -41,15 +35,35 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_PlanLayout.AddYGap();
     
     m_PlanLayout.AddDividerBox( "Tip Treatment" );
+    m_PlanLayout.AddSlider( m_CapTessSlider, "Cap Tess", 10, "%3.0f" );
+
+    m_PlanLayout.AddYGap();
 
     m_RootCapTypeChoice.AddItem("None");
     m_RootCapTypeChoice.AddItem("Flat");
+    m_RootCapTypeChoice.AddItem("Round");
+    m_RootCapTypeChoice.AddItem("Edge");
+    m_RootCapTypeChoice.AddItem("Sharp");
     m_PlanLayout.AddChoice(m_RootCapTypeChoice, "Root Cap Type");
+
+    m_PlanLayout.AddSlider( m_RootCapLenSlider, "Length", 1, "%6.5f" );
+    m_PlanLayout.AddSlider( m_RootCapOffsetSlider, "Offset", 1, "%6.5f" );
+    m_PlanLayout.AddSlider( m_RootCapStrengthSlider, "Strength", 1, "%6.5f" );
+    m_PlanLayout.AddButton( m_RootCapSweepFlagButton, "Sweep Stretch" );
+
+    m_PlanLayout.AddYGap();
+
     m_TipCapTypeChoice.AddItem("None");
     m_TipCapTypeChoice.AddItem("Flat");
+    m_TipCapTypeChoice.AddItem("Round");
+    m_TipCapTypeChoice.AddItem("Edge");
+    m_TipCapTypeChoice.AddItem("Sharp");
     m_PlanLayout.AddChoice(m_TipCapTypeChoice, "Tip Cap Type");
-    m_PlanLayout.AddYGap();
-    m_PlanLayout.AddSlider( m_CapTessSlider, "Cap Tess", 10, "%3.0f" );
+
+    m_PlanLayout.AddSlider( m_TipCapLenSlider, "Length", 1, "%6.5f" );
+    m_PlanLayout.AddSlider( m_TipCapOffsetSlider, "Offset", 1, "%6.5f" );
+    m_PlanLayout.AddSlider( m_TipCapStrengthSlider, "Strength", 1, "%6.5f" );
+    m_PlanLayout.AddButton( m_TipCapSweepFlagButton, "Sweep Stretch" );
 
     m_PlanLayout.AddYGap();
     m_PlanLayout.AddDividerBox( "Root Incidence" );
@@ -60,8 +74,12 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_PlanLayout.AddDividerBox( "Tessellation Control" );
     m_PlanLayout.AddSlider( m_LEClusterSlider, "LE Clustering", 1, "%6.5f" );
     m_PlanLayout.AddSlider( m_TEClusterSlider, "TE Clustering", 1, "%6.5f" );
+    m_PlanLayout.AddYGap();
+    m_PlanLayout.SetButtonWidth( 200 );
+    m_PlanLayout.AddOutput( m_SmallPanelWOutput, "Minimum LE/TE Panel Width" );
+    m_PlanLayout.AddOutput( m_MaxGrowthOutput, "Maximum Growth Ratio" );
 
-    Fl_Group* sect_tab = AddTab( "Sect" );
+    Fl_Group* sect_tab = AddTab( "Sect", 4 );
     Fl_Group* sect_group = AddSubGroup( sect_tab, 5 );
 
     m_SectionLayout.SetGroupAndScreen( sect_group, this );
@@ -177,7 +195,7 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_SectionLayout.SetButtonWidth( 74 );
 
 
-    Fl_Group* af_tab = AddTab( "Airfoil" );
+    Fl_Group* af_tab = AddTab( "Airfoil", 5 );
     Fl_Group* af_group = AddSubGroup( af_tab, 5 );
 
     m_AfLayout.SetGroupAndScreen( af_group, this );
@@ -214,6 +232,7 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_AfTypeChoice.AddItem( "BEZIER" );
     m_AfTypeChoice.AddItem( "AF_FILE" );
     m_AfTypeChoice.AddItem( "CST_AIRFOIL" );
+    m_AfTypeChoice.AddItem( "KARMAN_TREFFTZ" );
 
     m_AfLayout.SetChoiceButtonWidth( 85 );
     m_AfLayout.SetButtonWidth( 40 );
@@ -237,8 +256,14 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_SuperGroup.AddSlider( m_SuperHeightSlider, "Height", 10, "%6.5f" );
     m_SuperGroup.AddSlider( m_SuperWidthSlider,  "Width", 10, "%6.5f" );
     m_SuperGroup.AddYGap();
+    m_SuperGroup.AddSlider( m_SuperMaxWidthLocSlider, "MaxWLoc", 2, "%6.5f" );
+    m_SuperGroup.AddYGap();
     m_SuperGroup.AddSlider( m_SuperMSlider, "M", 10, "%6.5f" );
     m_SuperGroup.AddSlider( m_SuperNSlider, "N", 10, "%6.5f" );
+    m_SuperGroup.AddYGap();
+    m_SuperGroup.AddButton( m_SuperToggleSym, "T/B Symmetric Exponents" );
+    m_SuperGroup.AddSlider( m_SuperM_botSlider, "M Bottom", 10, "%6.5f" );
+    m_SuperGroup.AddSlider( m_SuperN_botSlider, "N Bottom", 10, "%6.5f" );
 
     //==== Circle XSec ====//
     m_CircleGroup.SetGroupAndScreen( AddSubGroup( af_tab, 5 ), this );
@@ -260,7 +285,12 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_RoundedRectGroup.AddSlider( m_RRHeightSlider, "Height", 10, "%6.5f" );
     m_RoundedRectGroup.AddSlider( m_RRWidthSlider,  "Width", 10, "%6.5f" );
     m_RoundedRectGroup.AddYGap();
+    m_RoundedRectGroup.AddSlider( m_RRSkewSlider, "Skew", 10, "%6.5f" );
+    m_RoundedRectGroup.AddSlider( m_RRKeystoneSlider, "Keystone", 10, "%6.5f");
+    m_RoundedRectGroup.AddYGap();
     m_RoundedRectGroup.AddSlider( m_RRRadiusSlider, "Radius", 10, "%6.5f" );
+    m_RoundedRectGroup.AddYGap();
+    m_RoundedRectGroup.AddButton( m_RRKeyCornerButton, "Key Corner" );
 
     //==== General Fuse XSec ====//
     m_GenGroup.SetGroupAndScreen( AddSubGroup( af_tab, 5 ), this );
@@ -439,12 +469,34 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_CSTLowCoeffLayout.SetGroupAndScreen( m_CSTLowCoeffScroll, this );
 
 
+    //==== VKT AF ====//
+    m_VKTGroup.SetGroupAndScreen( AddSubGroup( af_tab, 5 ), this );
+    m_VKTGroup.SetY( start_y );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddSlider( m_VKTChordSlider, "Chord", 10, "%7.3f" );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddSlider( m_VKTEpsilonSlider, "Epsilon", 1, "%7.5f" );
+    m_VKTGroup.AddSlider( m_VKTKappaSlider, "Kappa", 1, "%7.5f" );
+    m_VKTGroup.AddSlider( m_VKTTauSlider, "Tau", 10, "%7.5f" );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.AddButton( m_VKTInvertButton, "Invert Airfoil" );
+    m_VKTGroup.AddYGap();
+    m_VKTGroup.SetSameLineFlag( true );
+    m_VKTGroup.SetFitWidthFlag( false );
+    m_VKTGroup.SetButtonWidth( 125 );
+    m_VKTGroup.AddButton( m_VKTFitCSTButton, "Fit CST" );
+    m_VKTGroup.InitWidthHeightVals();
+    m_VKTGroup.SetFitWidthFlag( true );
+    m_VKTGroup.AddCounter( m_VKTDegreeCounter, "Degree", 125 );
+
     DisplayGroup( &m_PointGroup );
 
     //==== TE Trim ====//
 
     Fl_Group* modify_tab = AddTab( "Modify" );
     Fl_Group* modify_group = AddSubGroup( modify_tab, 5 );
+
+    m_ModifyLayout.SetButtonWidth( 70 );
 
     m_ModifyLayout.SetGroupAndScreen( modify_group, this );
     m_ModifyLayout.AddDividerBox( "Airfoil Section" );
@@ -462,11 +514,101 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_ModifyLayout.AddSlider( m_AFScaleSlider, "Scale", 1, "%7.3f" );
     m_ModifyLayout.AddSlider( m_AFShiftLESlider, "Shift LE", 1, "%7.3f" );
 
-    m_ModifyLayout.SetChoiceButtonWidth( 80 );
-    m_ModifyLayout.SetButtonWidth( 40 );
+    m_ModifyLayout.SetChoiceButtonWidth( 74 );
 
     m_ModifyLayout.AddYGap();
-    m_ModifyLayout.AddDividerBox( "TE Closure" );
+
+    m_ModifyLayout.AddDividerBox( "Leading Edge" );
+    m_LECapChoice.AddItem( "FLAT" );
+    m_LECapChoice.AddItem( "ROUND" );
+    m_LECapChoice.AddItem( "EDGE" );
+    m_LECapChoice.AddItem( "SHARP" );
+    m_LECapChoice.SetOffset( FLAT_END_CAP );
+
+    m_ModifyLayout.AddChoice( m_LECapChoice, "Cap" );
+
+    m_ModifyLayout.AddSlider( m_LECapLengthSlider, "Length", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_LECapOffsetSlider, "Offset", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_LECapStrengthSlider, "Strength", 10.0, "%6.5f" );
+
+    m_LECloseChoice.AddItem( "NONE" );
+    m_LECloseChoice.AddItem( "SKEW LOWER" );
+    m_LECloseChoice.AddItem( "SKEW UPPER" );
+    m_LECloseChoice.AddItem( "SKEW BOTH" );
+
+    m_ModifyLayout.SetFitWidthFlag( true );
+    m_ModifyLayout.SetSameLineFlag( true );
+
+    m_ModifyLayout.AddYGap();
+
+    m_ModifyLayout.AddChoice( m_LECloseChoice, "Closure:", m_ModifyLayout.GetButtonWidth() * 2 );
+
+    m_ModifyLayout.SetFitWidthFlag( false );
+    m_ModifyLayout.AddButton( m_LECloseABSButton, "Abs" );
+    m_ModifyLayout.AddButton( m_LECloseRELButton, "Rel" );
+
+    m_LECloseGroup.Init( this );
+    m_LECloseGroup.AddButton( m_LECloseABSButton.GetFlButton() );
+    m_LECloseGroup.AddButton( m_LECloseRELButton.GetFlButton() );
+
+    vector< int > close_val_map;
+    close_val_map.push_back( vsp::ABS );
+    close_val_map.push_back( vsp::REL );
+    m_LECloseGroup.SetValMapVec( close_val_map );
+
+    m_ModifyLayout.ForceNewLine();
+
+    m_ModifyLayout.SetFitWidthFlag( true );
+    m_ModifyLayout.SetSameLineFlag( false );
+
+    m_ModifyLayout.AddSlider( m_CloseLEThickSlider, "T", 10.0, "%6.5f" );
+
+    m_ModifyLayout.AddYGap();
+
+    m_LETrimChoice.AddItem( "NONE" );
+    m_LETrimChoice.AddItem( "X" );
+    m_LETrimChoice.AddItem( "THICK" );
+
+    m_ModifyLayout.SetFitWidthFlag( true );
+    m_ModifyLayout.SetSameLineFlag( true );
+
+    m_ModifyLayout.AddChoice( m_LETrimChoice, "Trim:", m_ModifyLayout.GetButtonWidth() * 2 );
+
+    m_ModifyLayout.SetFitWidthFlag( false );
+    m_ModifyLayout.AddButton( m_LETrimABSButton, "Abs" );
+    m_ModifyLayout.AddButton( m_LETrimRELButton, "Rel" );
+
+    m_LETrimGroup.Init( this );
+    m_LETrimGroup.AddButton( m_LETrimABSButton.GetFlButton() );
+    m_LETrimGroup.AddButton( m_LETrimRELButton.GetFlButton() );
+
+    vector< int > trim_val_map;
+    trim_val_map.push_back( vsp::ABS );
+    trim_val_map.push_back( vsp::REL );
+    m_LETrimGroup.SetValMapVec( trim_val_map );
+
+    m_ModifyLayout.ForceNewLine();
+
+    m_ModifyLayout.SetFitWidthFlag( true );
+    m_ModifyLayout.SetSameLineFlag( false );
+
+    m_ModifyLayout.AddSlider( m_TrimLEXSlider, "X", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_TrimLEThickSlider, "T", 10.0, "%6.5f" );
+
+    m_ModifyLayout.AddYGap();
+
+    m_ModifyLayout.AddDividerBox( "Trailing Edge" );
+    m_TECapChoice.AddItem( "FLAT" );
+    m_TECapChoice.AddItem( "ROUND" );
+    m_TECapChoice.AddItem( "EDGE" );
+    m_TECapChoice.AddItem( "SHARP" );
+    m_TECapChoice.SetOffset( FLAT_END_CAP );
+
+    m_ModifyLayout.AddChoice( m_TECapChoice, "Cap:" );
+
+    m_ModifyLayout.AddSlider( m_TECapLengthSlider, "Length", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_TECapOffsetSlider, "Offset", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_TECapStrengthSlider, "Strength", 10.0, "%6.5f" );
 
     m_TECloseChoice.AddItem( "NONE" );
     m_TECloseChoice.AddItem( "SKEW LOWER" );
@@ -477,7 +619,9 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_ModifyLayout.SetFitWidthFlag( true );
     m_ModifyLayout.SetSameLineFlag( true );
 
-    m_ModifyLayout.AddChoice( m_TECloseChoice, "Type:", m_ModifyLayout.GetButtonWidth() * 2 );
+    m_ModifyLayout.AddYGap();
+
+    m_ModifyLayout.AddChoice( m_TECloseChoice, "Closure:", m_ModifyLayout.GetButtonWidth() * 2 );
 
     m_ModifyLayout.SetFitWidthFlag( false );
     m_ModifyLayout.AddButton( m_TECloseABSButton, "Abs" );
@@ -487,9 +631,6 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_TECloseGroup.AddButton( m_TECloseABSButton.GetFlButton() );
     m_TECloseGroup.AddButton( m_TECloseRELButton.GetFlButton() );
 
-    vector< int > close_val_map;
-    close_val_map.push_back( vsp::ABS );
-    close_val_map.push_back( vsp::REL );
     m_TECloseGroup.SetValMapVec( close_val_map );
 
     m_ModifyLayout.ForceNewLine();
@@ -497,11 +638,9 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_ModifyLayout.SetFitWidthFlag( true );
     m_ModifyLayout.SetSameLineFlag( false );
 
-    m_ModifyLayout.AddSlider( m_CloseThickSlider, "T", 10.0, "%6.5f" );
-    m_ModifyLayout.AddSlider( m_CloseThickChordSlider, "T/C", 1.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_CloseTEThickSlider, "T", 10.0, "%6.5f" );
 
     m_ModifyLayout.AddYGap();
-    m_ModifyLayout.AddDividerBox( "TE Trim" );
 
     m_TETrimChoice.AddItem( "NONE" );
     m_TETrimChoice.AddItem( "X" );
@@ -510,7 +649,7 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_ModifyLayout.SetFitWidthFlag( true );
     m_ModifyLayout.SetSameLineFlag( true );
 
-    m_ModifyLayout.AddChoice( m_TETrimChoice, "Type:", m_ModifyLayout.GetButtonWidth() * 2 );
+    m_ModifyLayout.AddChoice( m_TETrimChoice, "Trim:", m_ModifyLayout.GetButtonWidth() * 2 );
 
     m_ModifyLayout.SetFitWidthFlag( false );
     m_ModifyLayout.AddButton( m_TETrimABSButton, "Abs" );
@@ -520,9 +659,6 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_TETrimGroup.AddButton( m_TETrimABSButton.GetFlButton() );
     m_TETrimGroup.AddButton( m_TETrimRELButton.GetFlButton() );
 
-    vector< int > trim_val_map;
-    trim_val_map.push_back( vsp::ABS );
-    trim_val_map.push_back( vsp::REL );
     m_TETrimGroup.SetValMapVec( trim_val_map );
 
     m_ModifyLayout.ForceNewLine();
@@ -530,10 +666,8 @@ WingScreen::WingScreen( ScreenMgr* mgr ) : GeomScreen( mgr, 335, 680, "Wing" )
     m_ModifyLayout.SetFitWidthFlag( true );
     m_ModifyLayout.SetSameLineFlag( false );
 
-    m_ModifyLayout.AddSlider( m_TrimXSlider, "X", 10.0, "%6.5f" );
-    m_ModifyLayout.AddSlider( m_TrimXChordSlider, "X/C", 10.0, "%6.5f" );
-    m_ModifyLayout.AddSlider( m_TrimThickSlider, "T", 10.0, "%6.5f" );
-    m_ModifyLayout.AddSlider( m_TrimThickChordSlider, "T/C", 1.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_TrimTEXSlider, "X", 10.0, "%6.5f" );
+    m_ModifyLayout.AddSlider( m_TrimTEThickSlider, "T", 10.0, "%6.5f" );
 
     m_SubSurfChoice.AddItem( SubSurface::GetTypeName( vsp::SS_CONTROL) );
     m_SubSurfChoice.UpdateItems();
@@ -568,7 +702,7 @@ bool WingScreen::Update()
         return false;
     }
 
-    GeomScreen::Update();
+    BlendScreen::Update();
     m_NumUSlider.Deactivate();
 
     WingGeom* wing_ptr = dynamic_cast< WingGeom* >( geom_ptr );
@@ -583,19 +717,84 @@ bool WingScreen::Update()
     m_LEClusterSlider.Update( wing_ptr->m_LECluster.GetID() );
     m_TEClusterSlider.Update( wing_ptr->m_TECluster.GetID() );
 
+    sprintf( str, "%6.4g", wing_ptr->m_SmallPanelW() );
+    m_SmallPanelWOutput.Update( str );
+
+    sprintf( str, "%6.3f", wing_ptr->m_MaxGrowth() );
+    m_MaxGrowthOutput.Update( str );
+
     sprintf( str, "%6.4f", wing_ptr->m_TotalProjSpan() * wing_ptr->m_TotalProjSpan() / wing_ptr->m_TotalArea() );
     m_PlanAROutput.Update( str );
 
     m_RootCapTypeChoice.Update( wing_ptr->m_CapUMinOption.GetID() );
     m_TipCapTypeChoice.Update( wing_ptr->m_CapUMaxOption.GetID() );
-    if ( wing_ptr->m_CapUMinOption() == VspSurf::NO_END_CAP &&
-         wing_ptr->m_CapUMaxOption() == VspSurf::NO_END_CAP )
-    {
-        m_CapTessSlider.Deactivate();
+
+    m_CapTessSlider.Update( wing_ptr->m_CapUMinTess.GetID() );
+
+    m_RootCapLenSlider.Update( wing_ptr->m_CapUMinLength.GetID() );
+    m_RootCapOffsetSlider.Update( wing_ptr->m_CapUMinOffset.GetID() );
+    m_RootCapStrengthSlider.Update( wing_ptr->m_CapUMinStrength.GetID() );
+    m_RootCapSweepFlagButton.Update( wing_ptr->m_CapUMinSweepFlag.GetID() );
+
+    m_RootCapLenSlider.Deactivate();
+    m_RootCapOffsetSlider.Deactivate();
+    m_RootCapStrengthSlider.Deactivate();
+    m_RootCapSweepFlagButton.Deactivate();
+
+    switch( wing_ptr->m_CapUMinOption() ){
+        case NO_END_CAP:
+            break;
+        case FLAT_END_CAP:
+            break;
+        case ROUND_END_CAP:
+            m_RootCapLenSlider.Activate();
+            m_RootCapOffsetSlider.Activate();
+            m_RootCapSweepFlagButton.Activate();
+            break;
+        case EDGE_END_CAP:
+            m_RootCapLenSlider.Activate();
+            m_RootCapOffsetSlider.Activate();
+            m_RootCapSweepFlagButton.Activate();
+            break;
+        case SHARP_END_CAP:
+            m_RootCapLenSlider.Activate();
+            m_RootCapOffsetSlider.Activate();
+            m_RootCapStrengthSlider.Activate();
+            m_RootCapSweepFlagButton.Activate();
+            break;
     }
-    else
-    {
-        m_CapTessSlider.Update( wing_ptr->m_CapUMinTess.GetID() );
+
+    m_TipCapLenSlider.Update( wing_ptr->m_CapUMaxLength.GetID() );
+    m_TipCapOffsetSlider.Update( wing_ptr->m_CapUMaxOffset.GetID() );
+    m_TipCapStrengthSlider.Update( wing_ptr->m_CapUMaxStrength.GetID() );
+    m_TipCapSweepFlagButton.Update( wing_ptr->m_CapUMaxSweepFlag.GetID() );
+
+    m_TipCapLenSlider.Deactivate();
+    m_TipCapOffsetSlider.Deactivate();
+    m_TipCapStrengthSlider.Deactivate();
+    m_TipCapSweepFlagButton.Deactivate();
+
+    switch( wing_ptr->m_CapUMaxOption() ){
+        case NO_END_CAP:
+            break;
+        case FLAT_END_CAP:
+            break;
+        case ROUND_END_CAP:
+            m_TipCapLenSlider.Activate();
+            m_TipCapOffsetSlider.Activate();
+            m_TipCapSweepFlagButton.Activate();
+            break;
+        case EDGE_END_CAP:
+            m_TipCapLenSlider.Activate();
+            m_TipCapOffsetSlider.Activate();
+            m_TipCapSweepFlagButton.Activate();
+            break;
+        case SHARP_END_CAP:
+            m_TipCapLenSlider.Activate();
+            m_TipCapOffsetSlider.Activate();
+            m_TipCapStrengthSlider.Activate();
+            m_TipCapSweepFlagButton.Activate();
+            break;
     }
 
     WingSect* root_sect = dynamic_cast<WingSect*>(wing_ptr->GetXSec( 0 ));
@@ -671,6 +870,21 @@ bool WingScreen::Update()
                 m_SuperWidthSlider.Update( super_xs->m_Width.GetID() );
                 m_SuperMSlider.Update( super_xs->m_M.GetID() );
                 m_SuperNSlider.Update( super_xs->m_N.GetID() );
+                m_SuperToggleSym.Update( super_xs->m_TopBotSym.GetID() );
+                m_SuperM_botSlider.Update( super_xs->m_M_bot.GetID() );
+                m_SuperN_botSlider.Update( super_xs->m_N_bot.GetID() );
+                m_SuperMaxWidthLocSlider.Update( super_xs->m_MaxWidthLoc.GetID() );
+
+                if ( super_xs->m_TopBotSym() )
+                {
+                    m_SuperM_botSlider.Deactivate();
+                    m_SuperN_botSlider.Deactivate();
+                }
+                else if ( !super_xs->m_TopBotSym() )
+                {
+                    m_SuperM_botSlider.Activate();
+                    m_SuperN_botSlider.Activate();
+                }
             }
             else if ( xsc->GetType() == XS_CIRCLE )
             {
@@ -698,6 +912,9 @@ bool WingScreen::Update()
                 m_RRHeightSlider.Update( rect_xs->m_Height.GetID() );
                 m_RRWidthSlider.Update( rect_xs->m_Width.GetID() );
                 m_RRRadiusSlider.Update( rect_xs->m_Radius.GetID() );
+                m_RRKeyCornerButton.Update( rect_xs->m_KeyCornerParm.GetID() );
+                m_RRSkewSlider.Update( rect_xs->m_Skew.GetID() );
+                m_RRKeystoneSlider.Update( rect_xs->m_Keystone.GetID() );
             }
             else if ( xsc->GetType() == XS_GENERAL_FUSE )
             {
@@ -795,7 +1012,6 @@ bool WingScreen::Update()
                 int num_up = cst_xs->m_UpDeg() + 1;
                 int num_low = cst_xs->m_LowDeg() + 1;
 
-                char str[255];
                 sprintf( str, "%d", cst_xs->m_UpDeg() );
                 m_UpDegreeOutput.Update( str );
                 sprintf( str, "%d", cst_xs->m_LowDeg() );
@@ -833,53 +1049,108 @@ bool WingScreen::Update()
                     m_LowCoeffSliderVec[0].Deactivate();
                 }
             }
+            else if ( xsc->GetType() == XS_VKT_AIRFOIL )
+            {
+                DisplayGroup( &m_VKTGroup );
+                VKTAirfoil* vkt_xs = dynamic_cast< VKTAirfoil* >( xsc );
+                assert( vkt_xs );
+
+                m_VKTChordSlider.Update( vkt_xs->m_Chord.GetID() );
+                m_VKTEpsilonSlider.Update( vkt_xs->m_Epsilon.GetID() );
+                m_VKTKappaSlider.Update( vkt_xs->m_Kappa.GetID() );
+                m_VKTTauSlider.Update( vkt_xs->m_Tau.GetID() );
+                m_VKTDegreeCounter.Update( vkt_xs->m_FitDegree.GetID() );
+                m_VKTInvertButton.Update( vkt_xs->m_Invert.GetID() );
+            }
 
             m_TECloseChoice.Update( xsc->m_TECloseType.GetID() );
             m_TECloseGroup.Update( xsc->m_TECloseAbsRel.GetID() );
-
-            m_CloseThickSlider.Update( xsc->m_TECloseThick.GetID() );
-            m_CloseThickChordSlider.Update( xsc->m_TECloseThickChord.GetID() );
 
             if ( xsc->m_TECloseType() != CLOSE_NONE )
             {
                 m_TECloseABSButton.Activate();
                 m_TECloseRELButton.Activate();
+                m_CloseTEThickSlider.Activate();
 
                 if ( xsc->m_TECloseAbsRel() == ABS )
                 {
-                    m_CloseThickSlider.Activate();
-                    m_CloseThickChordSlider.Deactivate();
+                    xsc->m_TECloseThick.Activate();
+                    xsc->m_TECloseThickChord.Deactivate();
                 }
                 else
                 {
-                    m_CloseThickSlider.Deactivate();
-                    m_CloseThickChordSlider.Activate();
+                    xsc->m_TECloseThick.Deactivate();
+                    xsc->m_TECloseThickChord.Activate();
                 }
             }
             else
             {
-                m_CloseThickSlider.Deactivate();
-                m_CloseThickChordSlider.Deactivate();
-
                 m_TECloseABSButton.Deactivate();
                 m_TECloseRELButton.Deactivate();
+                m_CloseTEThickSlider.Deactivate();
+                xsc->m_TECloseThick.Deactivate();
+                xsc->m_TECloseThickChord.Deactivate();
+            }
+
+            if ( xsc->m_TECloseAbsRel() == ABS )
+            {
+                m_CloseTEThickSlider.Update( 1, xsc->m_TECloseThick.GetID(), xsc->m_TECloseThickChord.GetID() );
+            }
+            else
+            {
+                m_CloseTEThickSlider.Update( 2, xsc->m_TECloseThick.GetID(), xsc->m_TECloseThickChord.GetID() );
+            }
+
+            m_LECloseChoice.Update( xsc->m_LECloseType.GetID() );
+            m_LECloseGroup.Update( xsc->m_LECloseAbsRel.GetID() );
+
+            if ( xsc->m_LECloseType() != CLOSE_NONE )
+            {
+                m_LECloseABSButton.Activate();
+                m_LECloseRELButton.Activate();
+                m_CloseLEThickSlider.Activate();
+
+                if ( xsc->m_LECloseAbsRel() == ABS )
+                {
+                    xsc->m_LECloseThick.Activate();
+                    xsc->m_LECloseThickChord.Deactivate();
+                }
+                else
+                {
+                    xsc->m_LECloseThick.Deactivate();
+                    xsc->m_LECloseThickChord.Activate();
+                }
+            }
+            else
+            {
+                m_LECloseABSButton.Deactivate();
+                m_LECloseRELButton.Deactivate();
+                m_CloseLEThickSlider.Deactivate();
+                xsc->m_LECloseThick.Deactivate();
+                xsc->m_LECloseThickChord.Deactivate();
+            }
+
+            if ( xsc->m_LECloseAbsRel() == ABS )
+            {
+                m_CloseLEThickSlider.Update( 1, xsc->m_LECloseThick.GetID(), xsc->m_LECloseThickChord.GetID() );
+            }
+            else
+            {
+                m_CloseLEThickSlider.Update( 2, xsc->m_LECloseThick.GetID(), xsc->m_LECloseThickChord.GetID() );
             }
 
             m_TETrimChoice.Update( xsc->m_TETrimType.GetID() );
             m_TETrimGroup.Update( xsc->m_TETrimAbsRel.GetID() );
 
-
-            m_TrimXSlider.Update( xsc->m_TETrimX.GetID() );
-            m_TrimXChordSlider.Update( xsc->m_TETrimXChord.GetID() );
-            m_TrimThickSlider.Update( xsc->m_TETrimThick.GetID() );
-            m_TrimThickChordSlider.Update( xsc->m_TETrimThickChord.GetID() );
-
-            m_TrimXSlider.Deactivate();
-            m_TrimXChordSlider.Deactivate();
-            m_TrimThickSlider.Deactivate();
-            m_TrimThickChordSlider.Deactivate();
+            m_TrimTEXSlider.Deactivate();
+            m_TrimTEThickSlider.Deactivate();
             m_TETrimABSButton.Deactivate();
             m_TETrimRELButton.Deactivate();
+
+            xsc->m_TETrimX.Deactivate();
+            xsc->m_TETrimXChord.Deactivate();
+            xsc->m_TETrimThickChord.Deactivate();
+            xsc->m_TETrimThick.Deactivate();
 
             if ( xsc->m_TETrimType() != TRIM_NONE )
             {
@@ -891,23 +1162,143 @@ bool WingScreen::Update()
             {
                 if ( xsc->m_TETrimAbsRel() == ABS )
                 {
-                    m_TrimXSlider.Activate();
+                    xsc->m_TETrimX.Activate();
                 }
                 else
                 {
-                    m_TrimXChordSlider.Activate();
+                    xsc->m_TETrimXChord.Activate();
                 }
             }
             else if ( xsc->m_TETrimType() == TRIM_THICK )
             {
                 if ( xsc->m_TETrimAbsRel() == ABS )
                 {
-                    m_TrimThickSlider.Activate();
+                    xsc->m_TETrimThick.Activate();
                 }
                 else
                 {
-                    m_TrimThickChordSlider.Activate();
+                    xsc->m_TETrimThickChord.Activate();
                 }
+            }
+
+            if ( xsc->m_TETrimAbsRel() == ABS )
+            {
+                m_TrimTEXSlider.Update( 1, xsc->m_TETrimX.GetID(), xsc->m_TETrimXChord.GetID() );
+                m_TrimTEThickSlider.Update( 1, xsc->m_TETrimThick.GetID(), xsc->m_TETrimThickChord.GetID() );
+            }
+            else
+            {
+                m_TrimTEXSlider.Update( 2, xsc->m_TETrimX.GetID(), xsc->m_TETrimXChord.GetID() );
+                m_TrimTEThickSlider.Update( 2, xsc->m_TETrimThick.GetID(), xsc->m_TETrimThickChord.GetID() );
+            }
+
+            m_LETrimChoice.Update( xsc->m_LETrimType.GetID() );
+            m_LETrimGroup.Update( xsc->m_LETrimAbsRel.GetID() );
+
+            m_TrimLEXSlider.Deactivate();
+            m_TrimLEThickSlider.Deactivate();
+            m_LETrimABSButton.Deactivate();
+            m_LETrimRELButton.Deactivate();
+
+            xsc->m_LETrimX.Deactivate();
+            xsc->m_LETrimXChord.Deactivate();
+            xsc->m_LETrimThickChord.Deactivate();
+            xsc->m_LETrimThick.Deactivate();
+
+            if ( xsc->m_LETrimType() != TRIM_NONE )
+            {
+                m_LETrimABSButton.Activate();
+                m_LETrimRELButton.Activate();
+            }
+
+            if ( xsc->m_LETrimType() == TRIM_X )
+            {
+                if ( xsc->m_LETrimAbsRel() == ABS )
+                {
+                    xsc->m_LETrimX.Activate();
+                }
+                else
+                {
+                    xsc->m_LETrimXChord.Activate();
+                }
+            }
+            else if ( xsc->m_LETrimType() == TRIM_THICK )
+            {
+                if ( xsc->m_LETrimAbsRel() == ABS )
+                {
+                    xsc->m_LETrimThick.Activate();
+                }
+                else
+                {
+                    xsc->m_LETrimThickChord.Activate();
+                }
+            }
+
+            if ( xsc->m_LETrimAbsRel() == ABS )
+            {
+                m_TrimLEXSlider.Update( 1, xsc->m_LETrimX.GetID(), xsc->m_LETrimXChord.GetID() );
+                m_TrimLEThickSlider.Update( 1, xsc->m_LETrimThick.GetID(), xsc->m_LETrimThickChord.GetID() );
+            }
+            else
+            {
+                m_TrimLEXSlider.Update( 2, xsc->m_LETrimX.GetID(), xsc->m_LETrimXChord.GetID() );
+                m_TrimLEThickSlider.Update( 2, xsc->m_LETrimThick.GetID(), xsc->m_LETrimThickChord.GetID() );
+            }
+
+            m_TECapChoice.Update( xsc->m_TECapType.GetID() );
+
+            m_TECapLengthSlider.Update( xsc->m_TECapLength.GetID() );
+            m_TECapOffsetSlider.Update( xsc->m_TECapOffset.GetID() );
+            m_TECapStrengthSlider.Update( xsc->m_TECapStrength.GetID() );
+
+            m_TECapLengthSlider.Deactivate();
+            m_TECapOffsetSlider.Deactivate();
+            m_TECapStrengthSlider.Deactivate();
+
+            switch( xsc->m_TECapType() ){
+                case FLAT_END_CAP:
+                    break;
+                case ROUND_END_CAP:
+                    m_TECapLengthSlider.Activate();
+                    m_TECapOffsetSlider.Activate();
+                    break;
+                case EDGE_END_CAP:
+                    m_TECapLengthSlider.Activate();
+                    m_TECapOffsetSlider.Activate();
+                    break;
+                case SHARP_END_CAP:
+                    m_TECapLengthSlider.Activate();
+                    m_TECapOffsetSlider.Activate();
+                    m_TECapStrengthSlider.Activate();
+                    break;
+            }
+
+            m_LECapChoice.Update( xsc->m_LECapType.GetID() );
+
+            m_LECapLengthSlider.Update( xsc->m_LECapLength.GetID() );
+            m_LECapOffsetSlider.Update( xsc->m_LECapOffset.GetID() );
+            m_LECapStrengthSlider.Update( xsc->m_LECapStrength.GetID() );
+
+            m_LECapLengthSlider.Deactivate();
+            m_LECapOffsetSlider.Deactivate();
+            m_LECapStrengthSlider.Deactivate();
+
+            switch( xsc->m_LECapType() ){
+                case FLAT_END_CAP:
+                    break;
+                case ROUND_END_CAP:
+                    m_LECapLengthSlider.Activate();
+                    m_LECapOffsetSlider.Activate();
+                    break;
+                case EDGE_END_CAP:
+                    m_LECapLengthSlider.Activate();
+                    m_LECapOffsetSlider.Activate();
+                    break;
+                case SHARP_END_CAP:
+                    m_LECapLengthSlider.Activate();
+                    m_LECapOffsetSlider.Activate();
+                    m_LECapStrengthSlider.Activate();
+                    break;
             }
 
             m_AFThetaSlider.Update( xsc->m_Theta.GetID() );
@@ -939,6 +1330,7 @@ void WingScreen::DisplayGroup( GroupLayout* group )
     m_FuseFileGroup.Hide();
     m_AfFileGroup.Hide();
     m_CSTAirfoilGroup.Hide();
+    m_VKTGroup.Hide();
 
     m_CurrDisplayGroup = group;
 
@@ -1164,7 +1556,8 @@ void WingScreen::GuiDeviceCallBack( GuiDevice* gui_device )
     }
     else if ( ( gui_device == &m_FourFitCSTButton ) ||
               ( gui_device == &m_SixFitCSTButton ) ||
-              ( gui_device == &m_AfFileFitCSTButton ) )
+              ( gui_device == &m_AfFileFitCSTButton ) ||
+              ( gui_device == &m_VKTFitCSTButton ) )
     {
         int xsid = wing_ptr->GetActiveAirfoilIndex();
         XSec* xs = wing_ptr->GetXSec( xsid );
@@ -1218,13 +1611,13 @@ void WingScreen::GuiDeviceCallBack( GuiDevice* gui_device )
         }
     }
 
-    GeomScreen::GuiDeviceCallBack( gui_device );
+    BlendScreen::GuiDeviceCallBack( gui_device );
 }
 
 //==== Fltk  Callbacks ====//
 void WingScreen::CallBack( Fl_Widget *w )
 {
-    GeomScreen::CallBack( w );
+    BlendScreen::CallBack( w );
 }
 
 void WingScreen::RebuildCSTGroup( CSTAirfoil* cst_xs)

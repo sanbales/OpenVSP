@@ -13,14 +13,15 @@
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-IGESOptionsScreen::IGESOptionsScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 174, "IGES Options" )
+IGESOptionsScreen::IGESOptionsScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 174 + 50, "IGES Options" )
 {
     m_FLTK_Window->callback( staticCloseCB, this );
 
     m_OkFlag = false;
     m_PrevUnit = 0;
     m_PrevSplit = false;
-    m_PrevCubic = false;;
+    m_PrevSplitSub = false;
+    m_PrevCubic = false;
     m_PrevToCubicTol = 1e-6;
 
     m_GenLayout.SetGroupAndScreen( m_FLTK_Window, this );
@@ -38,8 +39,12 @@ IGESOptionsScreen::IGESOptionsScreen( ScreenMgr* mgr ) : BasicScreen( mgr, 250, 
 
     m_GenLayout.AddButton( m_SplitSurfsToggle, "Split Surfaces" );
     m_GenLayout.AddYGap();
+    m_GenLayout.AddButton( m_SplitSubSurfsToggle, "Split U/W-Const Sub-Surfaces" );
+    m_GenLayout.AddYGap();
+    m_GenLayout.AddButton( m_TrimTEToggle, "Omit TE Surfaces" );
+    m_GenLayout.AddYGap();
     m_GenLayout.AddButton( m_ToCubicToggle, "Convert to Cubic" );
-    m_GenLayout.AddSlider( m_ToCubicTolSlider, "Tolerance", 10, "%5.4g", true );
+    m_GenLayout.AddSlider( m_ToCubicTolSlider, "Tolerance", 10, "%5.4g", 0, true );
 
     m_GenLayout.AddY( 25 );
     m_GenLayout.SetFitWidthFlag( false );
@@ -65,8 +70,10 @@ bool IGESOptionsScreen::Update()
     {
         m_LenUnitChoice.Update( veh->m_IGESLenUnit.GetID() );
         m_SplitSurfsToggle.Update( veh->m_IGESSplitSurfs.GetID() );
+        m_SplitSubSurfsToggle.Update( veh->m_IGESSplitSubSurfs.GetID() );
         m_ToCubicToggle.Update( veh->m_IGESToCubic.GetID() );
         m_ToCubicTolSlider.Update( veh->m_IGESToCubicTol.GetID() );
+        m_TrimTEToggle.Update( veh->m_IGESTrimTE.GetID() );
 
         if ( !veh->m_IGESToCubic() )
         {
@@ -108,8 +115,10 @@ void IGESOptionsScreen::GuiDeviceCallBack( GuiDevice* device )
         {
             veh->m_IGESLenUnit.Set( m_PrevUnit );
             veh->m_IGESSplitSurfs.Set( m_PrevSplit );
+            veh->m_IGESSplitSubSurfs.Set( m_PrevSplitSub );
             veh->m_IGESToCubic.Set( m_PrevCubic );
             veh->m_IGESToCubicTol.Set( m_PrevToCubicTol );
+            veh->m_IGESTrimTE.Set( m_PrevTrimTE );
         }
         Hide();
     }
@@ -129,8 +138,10 @@ bool IGESOptionsScreen::ShowIGESOptionsScreen()
     {
         m_PrevUnit = veh->m_IGESLenUnit();
         m_PrevSplit = veh->m_IGESSplitSurfs();
+        m_PrevSplitSub = veh->m_IGESSplitSubSurfs();
         m_PrevCubic = veh->m_IGESToCubic();
         m_PrevToCubicTol = veh->m_IGESToCubicTol();
+        m_PrevTrimTE = veh->m_IGESTrimTE();
     }
 
     while( m_FLTK_Window->shown() )
@@ -151,8 +162,10 @@ void IGESOptionsScreen::CloseCallBack( Fl_Widget *w )
     {
         veh->m_IGESLenUnit.Set( m_PrevUnit );
         veh->m_IGESSplitSurfs.Set( m_PrevSplit );
+        veh->m_IGESSplitSubSurfs.Set( m_PrevSplitSub );
         veh->m_IGESToCubic.Set( m_PrevCubic );
         veh->m_IGESToCubicTol.Set( m_PrevToCubicTol );
+        veh->m_IGESTrimTE.Set( m_PrevTrimTE );
     }
 
     Hide();

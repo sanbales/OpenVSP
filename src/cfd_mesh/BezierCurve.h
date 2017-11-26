@@ -22,7 +22,7 @@
 
 #include <vector>               //jrg windows?? 
 #include <stdio.h>
-#include <math.h>
+#include <cmath>
 
 #include "eli/code_eli.hpp"
 
@@ -72,6 +72,10 @@ public:
     bool MatchBkwd( const Bezier_curve &ocrv, double tol ) const;
 
     bool SingleLinear();
+
+    void GetBBox( BndBox &box );
+
+    void GetControlPoints( vector< vec3d > &pnts_out );
 
     piecewise_curve_type GetCurve() const
     {

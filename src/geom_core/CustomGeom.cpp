@@ -11,9 +11,7 @@
 #include "ParmMgr.h"
 #include "LinkMgr.h"
 #include "ScriptMgr.h"
-#include "VspSurf.h"
 #include "Vehicle.h"
-#include "VehicleMgr.h"
 #include "VSP_Geom_API.h"
 
 using namespace vsp;
@@ -52,7 +50,7 @@ void CustomGeomMgrSingleton::ReadCustomScripts( Vehicle* veh )
         {
             if( m_ModuleGeomIDMap.find( mod_vec[i] ) == m_ModuleGeomIDMap.end() )
             {
-                m_CustomTypeVec.push_back( GeomType( CUSTOM_GEOM_TYPE, mod_vec[i], false, mod_vec[i] ) );
+                m_CustomTypeVec.push_back( GeomType( CUSTOM_GEOM_TYPE, mod_vec[i], false, mod_vec[i], mod_vec[i] ) );
                 m_ModuleGeomIDMap[ mod_vec[i] ] = string();
             }
         }
@@ -60,7 +58,7 @@ void CustomGeomMgrSingleton::ReadCustomScripts( Vehicle* veh )
 }
 
 //==== Init Custom Geom ====//
-void CustomGeomMgrSingleton::InitGeom( const string& id, const string& module_name )
+void CustomGeomMgrSingleton::InitGeom( const string& id, const string& module_name, const string& display_name )
 {
     Vehicle* veh = VehicleMgr.GetVehicle();
     Geom* gptr = veh->FindGeom( id );
@@ -71,6 +69,7 @@ void CustomGeomMgrSingleton::InitGeom( const string& id, const string& module_na
         m_CurrGeom = id;
         CustomGeom* custom_geom = dynamic_cast<CustomGeom*>( gptr );
         custom_geom->SetScriptModuleName( module_name );
+        custom_geom->SetDisplayName( display_name );
         custom_geom->InitGeom();
 
         m_ModuleGeomIDMap[ module_name ] = id;
@@ -575,11 +574,10 @@ void CustomXSec::Update()
     rotate_mat.rotateZ( m_Rot.z() );
 
     Matrix4d cent_mat;
-    vec3d cent = m_CenterRot + m_Loc;
-    cent_mat.translatef( -cent.x(), -cent.y(), -cent.z() );
+    cent_mat.translatef( -m_Loc.x(), -m_Loc.y(), -m_Loc.z() );
 
     Matrix4d inv_cent_mat;
-    inv_cent_mat.translatef(  cent.x(),  cent.y(),  cent.z() );
+    inv_cent_mat.translatef(  m_Loc.x(),  m_Loc.y(),  m_Loc.z() );
 
     m_Transform.loadIdentity();
 
@@ -603,7 +601,6 @@ void CustomXSec::CopyBasePos( XSec* xs )
         {
             m_Loc = cxs->m_Loc;
             m_Rot = cxs->m_Rot;
-            m_CenterRot = cxs->m_CenterRot;
         }
     }
 }
@@ -619,13 +616,6 @@ void CustomXSec::SetLoc( const vec3d & loc )
 void CustomXSec::SetRot( const vec3d & rot )
 {
     m_Rot = rot;
-    m_LateUpdateFlag = true;
-}
-
-//==== Set XSec Center Rotation - Not Using Parms To Avoid Exposing Dependant Vars ====//
-void CustomXSec::SetCenterRot( const vec3d & cent )
-{
-    m_CenterRot = cent;
     m_LateUpdateFlag = true;
 }
 
@@ -649,6 +639,7 @@ CustomGeom::CustomGeom( Vehicle* vehicle_ptr ) : Geom( vehicle_ptr )
     m_Type.m_Type = CUSTOM_GEOM_TYPE;
     m_VspSurfType = vsp::NORMAL_SURF;
     m_VspSurfCfdType = vsp::CFD_NORMAL;
+    m_ConformalFlag = false;
 }
 
 //==== Destructor ====//
@@ -806,7 +797,7 @@ string CustomGeom::AddParm( int type, const string & name, const string & group 
 
     if ( p )
     {
-        p->Init( name, group, this, 0.0, -1.0e6, 1.0e6, true );
+        p->Init( name, group, this, 0.0, -1.0e6, 1.0e6 );
         p->SetDescript( "Custom Descript" );
         m_ParmVec.push_back( p );
         return p->GetID();
@@ -888,6 +879,13 @@ XSecSurf* CustomGeom::GetXSecSurf( int index )
 //==== Skin XSec Surfs ====//
 void CustomGeom::SkinXSecSurf( bool closed_flag )
 {
+    if ( m_ConformalFlag )
+    {
+        ApplyConformalOffset( m_ConformalOffset );
+        m_ConformalFlag = false;
+    }
+
+
     m_MainSurfVec.resize( m_XSecSurfVec.size() );
     assert( m_XSecSurfVec.size() == m_MainSurfVec.size() );
 
@@ -958,6 +956,7 @@ void CustomGeom::CloneSurf( int index, Matrix4d & mat )
     {
         VspSurf clone = m_MainSurfVec[index];
         clone.Transform( mat );
+        clone.SetClone( index, mat );
         m_MainSurfVec.push_back( clone );
     }
 }
@@ -1029,7 +1028,7 @@ xmlNodePtr CustomGeom::DecodeXml( xmlNodePtr & node )
         string file_contents = XmlUtil::ConvertFromXMLSafeChars( safe_file_contents );
 
         string new_module_name = ScriptMgr.ReadScriptFromMemory( module_name, file_contents );
-        CustomGeomMgr.InitGeom( GetID(), new_module_name );
+        CustomGeomMgr.InitGeom( GetID(), new_module_name, module_name );
 
         for ( int i = 0 ; i < (int)m_ParmVec.size() ; i++ )
         {
@@ -1099,4 +1098,34 @@ void CustomGeom::Scale()
     ScriptMgr.ExecuteScript( GetScriptModuleName().c_str(), "void Scale(double s)", true, curr_scale );
 
     m_LastScale = m_Scale();
+}
+
+//==== Trigger Conformal XSec Offset =====//
+void CustomGeom::OffsetXSecs( double off )
+{
+    m_ConformalFlag = true;
+    m_ConformalOffset = off;
+}
+
+//==== Apply Conformal Offset ====//
+void CustomGeom::ApplyConformalOffset( double off )
+{
+
+    for ( int i = 0 ; i < ( int )m_XSecSurfVec.size() ; i++ )
+    {
+
+        int nxsec = m_XSecSurfVec[i]->NumXSec();
+        for ( int j = 0 ; j < nxsec ; j++ )
+        {
+            XSec* xs = m_XSecSurfVec[i]->FindXSec( j );
+            if ( xs )
+            {
+                XSecCurve* xsc = xs->GetXSecCurve();
+                if ( xsc )
+                {
+                    xsc->OffsetCurve( off );
+                }
+            }
+        }
+    }
 }

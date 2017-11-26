@@ -139,6 +139,7 @@ private:
     void _updateTextures( DrawObj * drawObj );
 
     void _loadTrisData( VSPGraphic::Renderable * destObj, DrawObj * drawObj );
+    void _loadQuadsData( VSPGraphic::Renderable * destObj, DrawObj * drawObj );
     void _loadXSecData( VSPGraphic::Renderable * destObj, DrawObj * drawObj );
     void _loadMarkData( VSPGraphic::Renderable * destObj, DrawObj * drawObj );
 
@@ -193,10 +194,6 @@ private:
         }
     };
     std::vector<ID> m_ids;
-
-    float m_LightAmb;
-    float m_LightDiff;
-    float m_LightSpec;
 
     int m_mouse_x;
     int m_mouse_y;

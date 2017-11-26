@@ -8,14 +8,13 @@
 #include "Geom.h"
 #include "Vehicle.h"
 #include "StlHelper.h"
+#include "DXFUtil.h"
+#include "SVGUtil.h"
 #include "StringUtil.h"
 #include "ParmMgr.h"
 #include "SubSurfaceMgr.h"
-#include "APIDefines.h"
+#include "HingeGeom.h"
 using namespace vsp;
-
-#include <time.h>
-#include <stdlib.h>
 
 //==== Constructor ====//
 GeomType::GeomType()
@@ -27,12 +26,13 @@ GeomType::GeomType()
 }
 
 //==== Constructor ====//
-GeomType::GeomType( int id, string name, bool fixed_flag, string module_name )
+GeomType::GeomType( int id, string name, bool fixed_flag, string module_name, string display_name )
 {
     m_Type = id;
     m_Name = name;
     m_FixedFlag = fixed_flag;
     m_ModuleName = module_name;
+    m_DisplayName = display_name;
 }
 
 //==== Destructor ====//
@@ -46,6 +46,7 @@ void GeomType::CopyFrom( const GeomType & t )
     m_Name = t.m_Name;
     m_FixedFlag = t.m_FixedFlag;
     m_ModuleName = t.m_ModuleName;
+    m_DisplayName = t.m_DisplayName;
     m_GeomID = t.m_GeomID;
 }
 
@@ -59,10 +60,10 @@ void GeomType::CopyFrom( const GeomType & t )
 //==== Constructor ====//
 GeomGuiDraw::GeomGuiDraw()
 {
+    m_DisplayType = DISPLAY_BEZIER;
     m_DrawType = GEOM_DRAW_WIRE;
     m_NoShowFlag = false;
     m_DisplayChildrenFlag = true;
-    m_MaterialID = 0;
     m_DispSubSurfFlag = true;
     m_DispFeatureFlag = true;
 }
@@ -123,6 +124,15 @@ void GeomBase::ParmChanged( Parm* parm_ptr, int type )
         return;
     }
 
+    //==== Check For Interactive Collision Dectection When Alt Key Is Pressed ====//
+    if ( type == Parm::SET_FROM_DEVICE )
+    {
+        if ( parm_ptr )
+        {
+            m_Vehicle->GetSnapToPtr()->PreventCollision( GetID(), parm_ptr->GetID() );
+        }
+    }
+
     Update();
     m_Vehicle->ParmChanged( parm_ptr, type );
     m_UpdatedParmVec.clear();
@@ -154,7 +164,7 @@ void GeomBase::LoadIDAndChildren( vector< string > & id_vec, bool check_display_
 {
     id_vec.push_back( m_ID );
 
-    if ( check_display_flag && m_GuiDraw.GetDisplayChildrenFlag() == false )
+    if ( check_display_flag && ! m_GuiDraw.GetDisplayChildrenFlag() )
     {
         return;
     }
@@ -179,6 +189,20 @@ int GeomBase::CountParents( int count )
         return parentPtr->CountParents( count );
     }
     return count;
+}
+
+bool GeomBase::IsParentJoint()
+{
+    GeomBase* parentPtr = m_Vehicle->FindGeom( m_ParentID );
+    if ( parentPtr )
+    {
+        HingeGeom* hingeParentPtr = dynamic_cast < HingeGeom* > ( parentPtr );
+        if ( hingeParentPtr )
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 string GeomBase::GetAncestorID( int gen )
@@ -279,8 +303,8 @@ xmlNodePtr GeomBase::DecodeXml( xmlNodePtr & node )
     xmlNodePtr child_node = XmlUtil::GetNode( node, "GeomBase", 0 );
     if ( child_node )
     {
-        m_Type.m_Name   = XmlUtil::FindString( child_node, "TypeName", m_Type.m_Name );
-        m_Type.m_Type   = XmlUtil::FindInt( child_node, "TypeID", m_Type.m_Type );
+        //m_Type.m_Name   = XmlUtil::FindString( child_node, "TypeName", m_Type.m_Name );
+        //m_Type.m_Type   = XmlUtil::FindInt( child_node, "TypeID", m_Type.m_Type );
         m_Type.m_FixedFlag = !!XmlUtil::FindInt( child_node, "TypeFixed", m_Type.m_FixedFlag );
         m_ParentID = ParmMgr.RemapID( XmlUtil::FindString( child_node, "ParentID", m_ParentID ) );
 
@@ -337,16 +361,15 @@ GeomXForm::GeomXForm( Vehicle* vehicle_ptr ) : GeomBase( vehicle_ptr )
     m_ZRelRot.SetDescript( "Z Rotation Relative to Parent" );
 
     // Attachment Parms
-    m_AbsRelFlag.Init( "Abs_Or_Relitive_flag", "XForm", this, RELATIVE_XFORM, ABSOLUTE_XFORM, RELATIVE_XFORM, false );
-    m_TransAttachFlag.Init( "Trans_Attach_Flag", "Attach", this, ATTACH_TRANS_NONE, ATTACH_TRANS_NONE, ATTACH_TRANS_UV, false );
+    m_AbsRelFlag.Init( "Abs_Or_Relitive_flag", "XForm", this, RELATIVE_XFORM, ABSOLUTE_XFORM, RELATIVE_XFORM );
+    m_TransAttachFlag.Init( "Trans_Attach_Flag", "Attach", this, ATTACH_TRANS_NONE, ATTACH_TRANS_NONE, ATTACH_TRANS_UV );
     m_TransAttachFlag.SetDescript( "Determines relative translation coordinate system" );
-    m_RotAttachFlag.Init( "Rots_Attach_Flag", "Attach", this, ATTACH_ROT_NONE, ATTACH_ROT_NONE, ATTACH_ROT_UV, false );
+    m_RotAttachFlag.Init( "Rots_Attach_Flag", "Attach", this, ATTACH_ROT_NONE, ATTACH_ROT_NONE, ATTACH_ROT_UV );
     m_RotAttachFlag.SetDescript( "Determines relative rotation axes" );
     m_ULoc.Init( "U_Attach_Location", "Attach", this, 1e-6, 1e-6, 1 - 1e-6 );
     m_ULoc.SetDescript( "U Location of Parent's Surface" );
     m_WLoc.Init( "V_Attach_Location", "Attach", this, 1e-6, 1e-6, 1 - 1e-6 );
     m_WLoc.SetDescript( "V Location of Parent's Surface" );
-    m_relFlag.Init( "Abs_Rel_Flag", "Attach", this, true, 0, 1 );
 
     m_Scale.Init( "Scale", "XForm", this, 1, 1.0e-3, 1.0e3 );
     m_Scale.SetDescript( "Scale Geometry Size" );
@@ -369,13 +392,29 @@ GeomXForm::~GeomXForm()
 //==== Update ====//
 void GeomXForm::Update( bool fullupdate )
 {
+    DeactivateXForms();
     ComposeModelMatrix();
-}
 
-//==== Update XForm ====//
-void GeomXForm::UpdateXForm()
-{
-    ComposeModelMatrix();
+    double axlen = 1.0;
+
+    Vehicle *veh = VehicleMgr.GetVehicle();
+    if ( veh )
+    {
+        axlen = veh->m_AxisLength();
+    }
+
+    Matrix4d attachedMat = ComposeAttachMatrix();
+
+    m_AttachOrigin = attachedMat.xform( vec3d( 0.0, 0.0, 0.0 ) );
+
+    m_AttachAxis.clear();
+    m_AttachAxis.resize( 3 );
+    for ( int i = 0; i < 3; i++ )
+    {
+        vec3d pt = vec3d( 0.0, 0.0, 0.0 );
+        pt.v[i] = axlen;
+        m_AttachAxis[i] = attachedMat.xform( pt );
+    }
 }
 
 //==== Compose Model Matrix =====//
@@ -445,13 +484,25 @@ Matrix4d GeomXForm::ComposeAttachMatrix()
 {
     Matrix4d attachedMat;
     attachedMat.loadIdentity();
+
+    Geom* parent = m_Vehicle->FindGeom( GetParentID() );
+
+    if ( parent )
+    {
+        HingeGeom* hingeparent = dynamic_cast < HingeGeom* > ( parent );
+        if ( hingeparent )
+        {
+            attachedMat = hingeparent->GetJointMatrix();
+            return attachedMat;
+        }
+    }
+
     // If both attachment flags set to none, return identity
     if ( m_TransAttachFlag() == ATTACH_TRANS_NONE && m_RotAttachFlag() == ATTACH_ROT_NONE )
     {
         return attachedMat;
     }
 
-    Geom* parent = m_Vehicle->FindGeom( GetParentID() );
     if ( parent )
     {
         Matrix4d transMat;
@@ -461,32 +512,26 @@ Matrix4d GeomXForm::ComposeAttachMatrix()
         parentMat = parent->getModelMatrix();
         double tempMat[16];
         parentMat.getMat( tempMat );
-        VspSurf* surf_ptr =  parent->GetSurfPtr();
 
         bool revertCompTrans = false;
         bool revertCompRot = false;
 
+        // Parent CompXXXCoordSys methods query the positioned m_SurfVec[0] surface,
+        // not m_MainSurfVec[0].  Consequently, m_ModelMatrix is already implied in
+        // these calculations and does not need to be applied again.
         if ( m_TransAttachFlag() == ATTACH_TRANS_UV )
         {
-            if ( surf_ptr )
+            if ( !( parent->CompTransCoordSys( m_ULoc(), m_WLoc(), transMat ) ) )
             {
-                transMat = surf_ptr->CompTransCoordSys( m_ULoc(), m_WLoc() );
-            }
-            else
-            {
-                revertCompTrans = true;
+                revertCompTrans = true; // Blank components revert to the component matrix.
             }
         }
 
         if ( m_RotAttachFlag() == ATTACH_ROT_UV )
         {
-            if ( surf_ptr )
+            if ( !( parent->CompRotCoordSys( m_ULoc(), m_WLoc(), rotMat ) ) )
             {
-                rotMat = surf_ptr->CompRotCoordSys( m_ULoc(), m_WLoc() );
-            }
-            else
-            {
-                revertCompRot = true;
+                revertCompRot = true; // For blank component.
             }
         }
 
@@ -544,6 +589,21 @@ void GeomXForm::DeactivateXForms()
         m_XRot.Activate();
         m_YRot.Activate();
         m_ZRot.Activate();
+    }
+
+    if ( IsParentJoint() )
+    {
+        m_ULoc.Deactivate();
+        m_WLoc.Deactivate();
+        m_TransAttachFlag.Deactivate();
+        m_RotAttachFlag.Deactivate();
+    }
+    else
+    {
+        m_ULoc.Activate();
+        m_WLoc.Activate();
+        m_TransAttachFlag.Activate();
+        m_RotAttachFlag.Activate();
     }
 }
 
@@ -691,11 +751,6 @@ Geom::Geom( Vehicle* vehicle_ptr ) : GeomXForm( vehicle_ptr )
     m_Type.m_Type = GEOM_GEOM_TYPE;
     m_Type.m_Name = m_Name;
 
-    m_CapUMin = true;
-    m_CapUMax = true;
-    m_CapWMin = true;
-    m_CapWMax = true;
-
     m_TessU.Init( "Tess_U", "Shape", this, 8, 2,  1000 );
     m_TessU.SetDescript( "Number of tessellated curves in the U direction" );
     m_TessW.Init( "Tess_W", "Shape", this, 9, 2,  1000 );
@@ -725,15 +780,15 @@ Geom::Geom( Vehicle* vehicle_ptr ) : GeomXForm( vehicle_ptr )
     }
     UpdateSets();
 
-    m_SymAncestor.Init( "Sym_Ancestor", "Sym", this, 1, 0, 1e6, true );
-    m_SymAncestOriginFlag.Init( "Sym_Ancestor_Origin_Flag", "Sym", this, true, 0, 1, true );
-    m_SymPlanFlag.Init( "Sym_Planar_Flag", "Sym", this, 0, 0, SYM_XY | SYM_XZ | SYM_YZ, true );
-    m_SymAxFlag.Init( "Sym_Axial_Flag", "Sym", this, 0, 0, SYM_ROT_Z, true );
+    m_SymAncestor.Init( "Sym_Ancestor", "Sym", this, 1, 0, 1e6 );
+    m_SymAncestOriginFlag.Init( "Sym_Ancestor_Origin_Flag", "Sym", this, true, 0, 1 );
+    m_SymPlanFlag.Init( "Sym_Planar_Flag", "Sym", this, 0, 0, SYM_XY | SYM_XZ | SYM_YZ );
+    m_SymAxFlag.Init( "Sym_Axial_Flag", "Sym", this, 0, 0, SYM_ROT_Z );
     m_SymRotN.Init( "Sym_Rot_N", "Sym", this, 2, 2, 1000 );
 
     // Mass Properties
-    m_Density.Init( "Density", "Mass_Props", this, 1, 1e-12, 1e12 );
-    m_MassArea.Init( "Mass_Area", "Mass_Props", this, 1, 1e-12, 1e12 );
+    m_Density.Init( "Density", "Mass_Props", this, 1, 0.0, 1e12 );
+    m_MassArea.Init( "Mass_Area", "Mass_Props", this, 1, 0.0, 1e12 );
     m_MassPrior.Init( "Mass_Prior", "Mass_Props", this, 0, 0, 1e12 );
     m_ShellFlag.Init( "Shell_Flag", "Mass_Props", this, false, 0, 1 );
 
@@ -741,20 +796,38 @@ Geom::Geom( Vehicle* vehicle_ptr ) : GeomXForm( vehicle_ptr )
     m_NegativeVolumeFlag.Init( "Negative_Volume_Flag", "Negative_Volume_Props", this, false, 0, 1);
 
     // End Cap Options
-    m_CapUMinOption.Init("CapUMinOption", "EndCap", this, VspSurf::NO_END_CAP, VspSurf::NO_END_CAP, VspSurf::NUM_END_CAP_OPTIONS-1);
+    m_CapUMinOption.Init("CapUMinOption", "EndCap", this, NO_END_CAP, NO_END_CAP, NUM_END_CAP_OPTIONS-1);
     m_CapUMinOption.SetDescript("Type of End Cap on UMin end");
+
+    m_CapUMinLength.Init( "CapUMinLength", "EndCap", this, 1, 0, 20 );
+    m_CapUMinLength.SetDescript( "Scaled length of end cap" );
+    m_CapUMinOffset.Init( "CapUMinOffset", "EndCap", this, 0, -20, 20 );
+    m_CapUMinOffset.SetDescript( "Scaled offset of end cap" );
+    m_CapUMinStrength.Init( "CapUMinStrength", "EndCap", this, 0.5, 0, 1 );
+    m_CapUMinStrength.SetDescript( "Tangent strength of end cap" );
+    m_CapUMinSweepFlag.Init( "CapUMinSweepFlag", "EndCap", this, 0, 0, 1 );
+    m_CapUMinSweepFlag.SetDescript( "Flag to stretch end cap length for sweep" );
 
     m_CapUMinTess.Init("CapUMinTess", "EndCap", this, 3, 3, 51);
     m_CapUMinTess.SetDescript("Number of tessellated curves on capped ends");
     m_CapUMinTess.SetMultShift(2, 1);
 
-    m_CapUMaxOption.Init("CapUMaxOption", "EndCap", this, VspSurf::NO_END_CAP, VspSurf::NO_END_CAP, VspSurf::NUM_END_CAP_OPTIONS-1);
+    m_CapUMaxOption.Init("CapUMaxOption", "EndCap", this, NO_END_CAP, NO_END_CAP, NUM_END_CAP_OPTIONS-1);
     m_CapUMaxOption.SetDescript("Type of End Cap on UMax end");
 
-    m_CapWMinOption.Init("CapWMinOption", "EndCap", this, VspSurf::NO_END_CAP, VspSurf::NO_END_CAP, VspSurf::NUM_END_CAP_OPTIONS-1);
+    m_CapUMaxLength.Init( "CapUMaxLength", "EndCap", this, 1, 0, 20 );
+    m_CapUMaxLength.SetDescript( "Scaled length of end cap" );
+    m_CapUMaxOffset.Init( "CapUMaxOffset", "EndCap", this, 0, -20, 20 );
+    m_CapUMaxOffset.SetDescript( "Scaled offset of end cap" );
+    m_CapUMaxStrength.Init( "CapUMaxStrength", "EndCap", this, 0.5, 0, 1 );
+    m_CapUMaxStrength.SetDescript( "Tangent strength of end cap" );
+    m_CapUMaxSweepFlag.Init( "CapUMaxSweepFlag", "EndCap", this, 0, 0, 1 );
+    m_CapUMaxSweepFlag.SetDescript( "Flag to stretch end cap length for sweep" );
+
+    m_CapWMinOption.Init("CapWMinOption", "EndCap", this, NO_END_CAP, NO_END_CAP, NUM_END_CAP_OPTIONS-1);
     m_CapWMinOption.SetDescript("Type of End Cap on WMin end");
 
-    m_CapWMaxOption.Init("CapWMaxOption", "EndCap", this, VspSurf::NO_END_CAP, VspSurf::NO_END_CAP, VspSurf::NUM_END_CAP_OPTIONS-1);
+    m_CapWMaxOption.Init("CapWMaxOption", "EndCap", this, NO_END_CAP, NO_END_CAP, NUM_END_CAP_OPTIONS-1);
     m_CapWMaxOption.SetDescript("Type of End Cap on WMax end");
 
     // Geom needs at least one surf
@@ -762,6 +835,39 @@ Geom::Geom( Vehicle* vehicle_ptr ) : GeomXForm( vehicle_ptr )
 
     currSourceID = 0;
 
+    m_GeomProjectVec3d.resize( 3 );
+    m_ForceXSecFlag = false;
+
+    // Parasite Drag Parms
+    m_PercLam.Init("PercLam", "ParasiteDragProps", this, 0, 0, 100 );
+    m_PercLam.SetDescript("Percentage Laminar" );
+
+    m_FFBodyEqnType.Init("FFBodyEqnType", "ParasiteDragProps", this, vsp::FF_B_HOERNER_STREAMBODY, vsp::FF_B_MANUAL, vsp::FF_B_JENKINSON_AFT_FUSE_NACELLE );
+    m_FFBodyEqnType.SetDescript("Equation that defines the form factor of a body type surface included this Geom");
+
+    m_FFWingEqnType.Init("FFWingEqnType", "ParasiteDragProps", this, vsp::FF_W_HOERNER, vsp::FF_W_MANUAL, vsp::FF_W_SCHEMENSKY_SUPERCRITICAL_AF );
+    m_FFWingEqnType.SetDescript("Equation that defines the form factor of a wing type surface included this Geom");
+
+    m_FFUser.Init("FFUser", "ParasiteDragProps", this, 1, -1, 10 );
+    m_FFUser.SetDescript( "User Input Form Factor Value" );
+
+    m_Q.Init("Q", "ParasiteDragProps", this, 1, 0, 3 );
+    m_Q.SetDescript( "Interference Factor" );
+
+    m_Roughness.Init("Roughness", "ParasiteDragProps", this, 0.0, 0, 1e3 );
+    m_Roughness.SetDescript( "Roughness Height" );
+
+    m_TeTwRatio.Init("TeTwRatio", "ParasiteDragProps", this, 1, -1, 1e6 );
+    m_TeTwRatio.SetDescript("Temperature Ratio of Freestream to Wall" );
+
+    m_TawTwRatio.Init("TawTwRatio", "ParasiteDragProps", this, 1, -1, 1e6 );
+    m_TawTwRatio.SetDescript("Temperature Ratio of Ambient Wall to Wall" );
+
+    m_GroupedAncestorGen.Init("IncorporatedGen", "ParasiteDragProps", this, 0, 0, 100);
+    m_GroupedAncestorGen.SetDescript("Ancestor Generation that incorporates this geoms Swet");
+
+    m_ExpandedListFlag.Init("ExpandedList", "ParasiteDragProps", this, false, false, true);
+    m_ExpandedListFlag.SetDescript("Flag to determine whether or not this geom has a collapsed list in parasite drag");
 }
 //==== Destructor ====//
 Geom::~Geom()
@@ -825,7 +931,7 @@ void Geom::UpdateSets()
 
     m_SetFlags[ SET_ALL ] = true;   // All
 
-    if ( m_GuiDraw.GetNoShowFlag() == false )
+    if ( ! m_GuiDraw.GetNoShowFlag() )
     {
         m_SetFlags[ SET_SHOWN ] = true; // Shown
         m_SetFlags[ SET_NOT_SHOWN ] = false;    // Not_Shown
@@ -857,6 +963,8 @@ void Geom::Update( bool fullupdate )
     m_UpdateBlock = true;
 
     m_LateUpdateFlag = false;
+
+    m_CappingDone = false;
 
     Scale();
 
@@ -1023,13 +1131,19 @@ void Geom::CalcTexCoords( int indx, vector< vector< vector< double > > > &utex, 
 
 void Geom::UpdateEndCaps()
 {
+    if ( m_CappingDone )
+    {
+        return;
+    }
+    m_CappingDone = true;
+
     int nmain = m_MainSurfVec.size();
     m_CapUMinSuccess.resize( nmain );
     m_CapUMaxSuccess.resize( nmain );
     m_CapWMinSuccess.resize( nmain );
     m_CapWMaxSuccess.resize( nmain );
 
-	// cycle through all vspsurfs, check if wing type then cap using new Code-Eli cap surface creator
+    // cycle through all vspsurfs, check if wing type then cap using new Code-Eli cap surface creator
     for ( int i = 0; i < nmain; i++ )
     {
         m_CapUMinSuccess[i] = false;
@@ -1038,18 +1152,52 @@ void Geom::UpdateEndCaps()
         m_CapWMaxSuccess[i] = false;
 
         // NOTE: These return a bool that is true if it modified the surface to create a cap
-        m_CapUMinSuccess[i] = m_MainSurfVec[i].CapUMin(m_CapUMinOption());
-        m_CapUMaxSuccess[i] = m_MainSurfVec[i].CapUMax(m_CapUMaxOption());
+        m_CapUMinSuccess[i] = m_MainSurfVec[i].CapUMin(m_CapUMinOption(), m_CapUMinLength(), m_CapUMinStrength(), m_CapUMinOffset(), m_CapUMinSweepFlag());
+        m_CapUMaxSuccess[i] = m_MainSurfVec[i].CapUMax(m_CapUMaxOption(), m_CapUMaxLength(), m_CapUMaxStrength(), m_CapUMaxOffset(), m_CapUMaxSweepFlag());
         m_CapWMinSuccess[i] = m_MainSurfVec[i].CapWMin(m_CapWMinOption());
         m_CapWMaxSuccess[i] = m_MainSurfVec[i].CapWMax(m_CapWMaxOption());
     }
+
+    switch( m_CapUMinOption() ){
+        case NO_END_CAP:
+        case FLAT_END_CAP:
+            m_CapUMinLength = 1.0;
+            m_CapUMinOffset = 0.0;
+            m_CapUMinStrength = 0.5;
+            break;
+        case ROUND_END_CAP:
+            m_CapUMinStrength = 1.0;
+            break;
+        case EDGE_END_CAP:
+            m_CapUMinStrength = 0.0;
+            break;
+        case SHARP_END_CAP:
+            break;
+    }
+
+    switch( m_CapUMaxOption() ){
+        case NO_END_CAP:
+        case FLAT_END_CAP:
+            m_CapUMaxLength = 1.0;
+            m_CapUMaxOffset = 0.0;
+            m_CapUMaxStrength = 0.5;
+            break;
+        case ROUND_END_CAP:
+            m_CapUMaxStrength = 1.0;
+            break;
+        case EDGE_END_CAP:
+            m_CapUMaxStrength = 0.0;
+            break;
+        case SHARP_END_CAP:
+            break;
+    }
 }
 
-void Geom::UpdateFeatureLines()
+void Geom::UpdateFeatureLines( )
 {
     for ( int i = 0; i < m_MainSurfVec.size(); i++ )
     {
-        m_MainSurfVec[i].BuildFeatureLines();
+        m_MainSurfVec[i].BuildFeatureLines( m_ForceXSecFlag );
     }
 }
 
@@ -1261,6 +1409,513 @@ void Geom::UpdateFlags( )
     }
 }
 
+void Geom::WriteFeatureLinesDXF( FILE * file_name, const BndBox &dxfbox )
+{
+    double tol = 10e-2; // Feature line tesselation tolerance
+
+    bool color = m_Vehicle->m_DXFColorFlag.Get();
+
+    // Bounding box diagonal, used to separate multi-view drawings
+    vec3d shiftvec = dxfbox.GetMax() - dxfbox.GetMin();
+
+    // Shift the vehicle bounding box to align with the +x, +y, +z axes at the orgin
+    vec3d to_orgin = GetVecToOrgin( dxfbox );
+
+    for ( int i = 0; i < m_SurfVec.size(); i++ )
+    {
+        vector < vector < vec3d > > allflines, allflines1, allflines2, allflines3, allflines4;
+
+        if ( m_GuiDraw.GetDispFeatureFlag() )
+        {
+            int nu = m_SurfVec[i].GetNumUFeature();
+            int nw = m_SurfVec[i].GetNumWFeature();
+            allflines.resize( nu + nw );
+            for ( int j = 0; j < nu; j++ )
+            {
+                m_SurfVec[i].TessUFeatureLine( j, allflines[j], tol );
+
+                // Shift Feature Lines back near the orgin for multi-view case:
+                if ( m_Vehicle->m_DXF2D3DFlag() != vsp::DIMENSION_SET::SET_3D )
+                {
+                    for ( unsigned int k = 0; k < allflines[j].size(); k++ )
+                    {
+                        allflines[j][k].offset_x( -to_orgin.x() );
+                        allflines[j][k].offset_y( -to_orgin.y() );
+                        allflines[j][k].offset_z( -to_orgin.z() );
+                    }
+                }
+            }
+
+            for ( int j = 0; j < nw; j++ )
+            {
+                m_SurfVec[i].TessWFeatureLine( j, allflines[j + nu], tol );
+
+                // Shift Feature Lines back near the orgin for multi-view case:
+                if ( m_Vehicle->m_DXF2D3DFlag() != vsp::DIMENSION_SET::SET_3D )
+                {
+                    for ( unsigned int k = 0; k < allflines[j + nu].size(); k++ )
+                    {
+                        allflines[j + nu][k].offset_x( -to_orgin.x() );
+                        allflines[j + nu][k].offset_y( -to_orgin.y() );
+                        allflines[j + nu][k].offset_z( -to_orgin.z() );
+                    }
+                }
+            }
+        }
+
+        // Add layers:
+        string layer = m_Name + string( "_Surf[" ) + to_string( i ) + string( "]" );
+
+        if ( m_Vehicle->m_DXF2D3DFlag() == vsp::DIMENSION_SET::SET_3D )
+        {
+            WriteDXFPolylines3D( file_name, allflines, layer, color, m_Vehicle->m_ColorCount );
+            m_Vehicle->m_ColorCount++;
+        }
+        else if ( m_Vehicle->m_DXF2D3DFlag() == vsp::DIMENSION_SET::SET_2D )
+        {
+            if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_1 )
+            {
+                allflines1 = allflines;
+                FeatureLinesManipulate( allflines1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                WriteDXFPolylines2D( file_name, allflines1, layer, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+            else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_2HOR )
+            {
+                allflines1 = allflines;
+                FeatureLinesManipulate( allflines1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View1_rot(), 0 );
+                string layer_v1 = layer + "_v1";
+
+                allflines2 = allflines;
+                FeatureLinesManipulate( allflines2, m_Vehicle->m_DXF4View2(), m_Vehicle->m_DXF4View2_rot(), shiftvec );
+                FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View2_rot(), 0 );
+                string layer_v2 = layer + "_v2";
+
+                WriteDXFPolylines2D( file_name, allflines1, layer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+
+                WriteDXFPolylines2D( file_name, allflines2, layer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+            else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_2VER )
+            {
+                allflines1 = allflines;
+                FeatureLinesManipulate( allflines1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View1_rot(), 0 );
+
+                allflines3 = allflines;
+                FeatureLinesManipulate( allflines3, m_Vehicle->m_DXF4View3(), m_Vehicle->m_DXF4View3_rot(), shiftvec );
+                FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View3_rot(), 0 );
+
+                string layer_v1 = layer + "_v1";
+                string layer_v2 = layer + "_v2";
+
+                WriteDXFPolylines2D( file_name, allflines1, layer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+
+                WriteDXFPolylines2D( file_name, allflines3, layer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+            else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_4 )
+            {
+                allflines1 = allflines;
+                FeatureLinesManipulate( allflines1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View1_rot(), m_Vehicle->m_DXF4View2_rot() );
+                FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View1_rot(), m_Vehicle->m_DXF4View3_rot() );
+
+                allflines2 = allflines;
+                FeatureLinesManipulate( allflines2, m_Vehicle->m_DXF4View2(), m_Vehicle->m_DXF4View2_rot(), shiftvec );
+                FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View2_rot(), m_Vehicle->m_DXF4View1_rot() );
+                FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View2_rot(), m_Vehicle->m_DXF4View4_rot() );
+
+                allflines3 = allflines;
+                FeatureLinesManipulate( allflines3, m_Vehicle->m_DXF4View3(), m_Vehicle->m_DXF4View3_rot(), shiftvec );
+                FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View3_rot(), m_Vehicle->m_DXF4View4_rot() );
+                FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View3_rot(), m_Vehicle->m_DXF4View1_rot() );
+
+                allflines4 = allflines;
+                FeatureLinesManipulate( allflines4, m_Vehicle->m_DXF4View4(), m_Vehicle->m_DXF4View4_rot(), shiftvec );
+                FeatureLinesShift( allflines4, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View4_rot(), m_Vehicle->m_DXF4View3_rot() );
+                FeatureLinesShift( allflines4, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View4_rot(), m_Vehicle->m_DXF4View2_rot() );
+
+                string layer_v1 = layer + "_v1";
+                string layer_v2 = layer + "_v2";
+                string layer_v3 = layer + "_v3";
+                string layer_v4 = layer + "_v4";
+
+                WriteDXFPolylines2D( file_name, allflines1, layer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+
+                WriteDXFPolylines2D( file_name, allflines2, layer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+
+                WriteDXFPolylines2D( file_name, allflines3, layer_v3, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+
+                WriteDXFPolylines2D( file_name, allflines4, layer_v4, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+        }
+    }
+}
+
+void Geom::WriteProjectionLinesDXF( FILE * file_name, const BndBox &dxfbox )
+{
+    bool color = m_Vehicle->m_DXFColorFlag.Get();
+
+    // Bounding box diagonal, used to separate multi-view drawings
+    vec3d shiftvec = dxfbox.GetMax() - dxfbox.GetMin();
+
+    // Shift the vehicle bounding box to align with the +x, +y, +z axes at the orgin
+    vec3d to_orgin = GetVecToOrgin( dxfbox );
+
+    // Add layers:
+    string projectionlayer  = m_Name + string( "_Projection" );
+
+    if ( m_Vehicle->m_DXF2D3DFlag() == vsp::DIMENSION_SET::SET_3D )
+    {
+        return; // Projection lines not valid for 3D view
+    }
+    else if ( m_Vehicle->m_DXF2D3DFlag() == vsp::DIMENSION_SET::SET_2D )
+    {
+        if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_1 )
+        {
+            vector < vector < vec3d > > projectionvec = GetGeomProjectionLines( m_Vehicle->m_DXF4View1(), to_orgin );
+
+            if ( projectionvec.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                WriteDXFPolylines2D( file_name, projectionvec, projectionlayer, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+        }
+        else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_2HOR )
+        {
+            vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_DXF4View1(), to_orgin );
+
+            if ( projectionvec1.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View1_rot(), 0 );
+                string projectionlayer_v1 = projectionlayer + "_v1";
+
+                WriteDXFPolylines2D( file_name, projectionvec1, projectionlayer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+
+            vector < vector < vec3d > > projectionvec2 = GetGeomProjectionLines( m_Vehicle->m_DXF4View2(), to_orgin );
+
+            if ( projectionvec2.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec2, m_Vehicle->m_DXF4View2(), m_Vehicle->m_DXF4View2_rot(), shiftvec );
+                FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View2_rot(), 0 );
+                string projectionlayer_v2 = projectionlayer + "_v2";
+
+                WriteDXFPolylines2D( file_name, projectionvec2, projectionlayer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+        }
+        else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_2VER )
+        {
+            vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_DXF4View1(), to_orgin );
+
+            if ( projectionvec1.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View1_rot(), 0 );
+                string projectionlayer_v1 = projectionlayer + "_v1";
+
+                WriteDXFPolylines2D( file_name, projectionvec1, projectionlayer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+
+            vector < vector < vec3d > > projectionvec3 = GetGeomProjectionLines( m_Vehicle->m_DXF4View3(), to_orgin );
+
+            if ( projectionvec3.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec3, m_Vehicle->m_DXF4View3(), m_Vehicle->m_DXF4View3_rot(), shiftvec );
+                FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View3_rot(), 0 );
+                string projectionlayer_v2 = projectionlayer + "_v2";
+
+                WriteDXFPolylines2D( file_name, projectionvec3, projectionlayer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+        }
+        else if ( m_Vehicle->m_DXF2DView() == vsp::VIEW_NUM::VIEW_4 )
+        {
+            vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_DXF4View1(), to_orgin );
+
+            if ( projectionvec1.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec1, m_Vehicle->m_DXF4View1(), m_Vehicle->m_DXF4View1_rot(), shiftvec );
+                FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View1_rot(), m_Vehicle->m_DXF4View2_rot() );
+                FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View1_rot(), m_Vehicle->m_DXF4View3_rot() );
+                string projectionlayer_v1 = projectionlayer + "_v1";
+
+                WriteDXFPolylines2D( file_name, projectionvec1, projectionlayer_v1, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+
+            vector < vector < vec3d > > projectionvec2 = GetGeomProjectionLines( m_Vehicle->m_DXF4View2(), to_orgin );
+
+            if ( projectionvec2.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec2, m_Vehicle->m_DXF4View2(), m_Vehicle->m_DXF4View2_rot(), shiftvec );
+                FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_DXF4View2_rot(), m_Vehicle->m_DXF4View1_rot() );
+                FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View2_rot(), m_Vehicle->m_DXF4View4_rot() );
+                string projectionlayer_v2 = projectionlayer + "_v2";
+
+                WriteDXFPolylines2D( file_name, projectionvec2, projectionlayer_v2, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+
+            vector < vector < vec3d > > projectionvec3 = GetGeomProjectionLines( m_Vehicle->m_DXF4View3(), to_orgin );
+
+            if ( projectionvec3.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec3, m_Vehicle->m_DXF4View3(), m_Vehicle->m_DXF4View3_rot(), shiftvec );
+                FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View3_rot(), m_Vehicle->m_DXF4View4_rot() );
+                FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_DXF4View3_rot(), m_Vehicle->m_DXF4View1_rot() );
+                string projectionlayer_v3 = projectionlayer + "_v3";
+
+                WriteDXFPolylines2D( file_name, projectionvec3, projectionlayer_v3, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+
+            vector < vector < vec3d > > projectionvec4 = GetGeomProjectionLines( m_Vehicle->m_DXF4View4(), to_orgin );
+
+            if ( projectionvec4.size() > 0 )
+            {
+                FeatureLinesManipulate( projectionvec4, m_Vehicle->m_DXF4View4(), m_Vehicle->m_DXF4View4_rot(), shiftvec );
+                FeatureLinesShift( projectionvec4, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_DXF4View4_rot(), m_Vehicle->m_DXF4View3_rot() );
+                FeatureLinesShift( projectionvec4, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_DXF4View4_rot(), m_Vehicle->m_DXF4View2_rot() );
+                string projectionlayer_v4 = projectionlayer + "_v4";
+
+                WriteDXFPolylines2D( file_name, projectionvec4, projectionlayer_v4, color, m_Vehicle->m_ColorCount );
+                m_Vehicle->m_ColorCount++;
+            }
+        }
+    }
+}
+
+vector< vector < vec3d > > Geom::GetGeomProjectionLines( int view, vec3d offset )
+{
+    vector < vector < vec3d > > PathVec;
+
+    if ( view == vsp::VIEW_TYPE::VIEW_LEFT || view == vsp::VIEW_TYPE::VIEW_RIGHT ) 
+    {
+        PathVec = m_GeomProjectVec3d[vsp::Y_DIR]; // Y axis projection
+    }
+    else if ( view == vsp::VIEW_TYPE::VIEW_FRONT || view == vsp::VIEW_TYPE::VIEW_REAR )
+    {
+        PathVec = m_GeomProjectVec3d[vsp::X_DIR]; // X axis projection
+    }
+    else if ( view == vsp::VIEW_TYPE::VIEW_TOP || view == vsp::VIEW_TYPE::VIEW_BOTTOM )
+    {
+        PathVec = m_GeomProjectVec3d[vsp::Z_DIR]; // Z axis projection
+    }
+
+    for ( int j = 0; j < PathVec.size(); j++ )
+    {
+        // Shift Projection Lines back near the orgin:
+        for ( unsigned int k = 0; k < PathVec[j].size(); k++ )
+        {
+            PathVec[j][k].offset_x( -offset.x() );
+            PathVec[j][k].offset_y( -offset.y() );
+            PathVec[j][k].offset_z( -offset.z() );
+        }
+    }
+
+    return PathVec;
+}
+
+void Geom::WriteFeatureLinesSVG( xmlNodePtr root, const BndBox &svgbox )
+{
+    double tol = 10e-2; // Feature line tesselation tolerance
+    
+    // Bounding box diagonal, used to separate multi-view drawings
+    vec3d shiftvec = svgbox.GetMax() - svgbox.GetMin();
+
+    // Shift the vehicle bounding box to align with the +x, +y, +z axes at the orgin
+    vec3d to_orgin = GetVecToOrgin( svgbox );
+
+    for ( int i = 0 ; i < ( int )m_SurfVec.size() ; i++ )
+    {
+        vector < vector < vec3d > > allflines, allflines1, allflines2, allflines3, allflines4;
+
+        if( m_GuiDraw.GetDispFeatureFlag() )
+        {
+            int nu = m_SurfVec[i].GetNumUFeature();
+            int nw = m_SurfVec[i].GetNumWFeature();
+            allflines.resize( nw + nu );
+            for( int j = 0; j < nw; j++ )
+            {
+                m_SurfVec[i].TessWFeatureLine( j, allflines[ j ], tol );
+
+                // To Do: multiple view ports instead of shifting feature lines in a single view port
+
+                // Shift Feature Lines back near the orgin:
+                for ( unsigned int k = 0; k < allflines[j].size(); k++ )
+                {
+                    allflines[j][k].offset_x( -to_orgin.x() );
+                    allflines[j][k].offset_y( -to_orgin.y() );
+                    allflines[j][k].offset_z( -to_orgin.z() );
+                }
+            }
+            for( int j = 0; j < nu; j++ )
+            {
+                m_SurfVec[i].TessUFeatureLine( j, allflines[ j + nw ], tol );
+
+                // Shift Feature Lines back near the orgin :
+                for ( unsigned int k = 0; k < allflines[j + nw].size(); k++ )
+                {
+                    allflines[j + nw][k].offset_x( -to_orgin.x() );
+                    allflines[j + nw][k].offset_y( -to_orgin.y() );
+                    allflines[j + nw][k].offset_z( -to_orgin.z() );
+                }
+            }
+        }
+
+        if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_1 )
+        {
+            allflines1 = allflines;
+            FeatureLinesManipulate( allflines1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+            WriteSVGPolylines2D( root, allflines1, svgbox );
+        }
+        else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_2HOR )
+        {
+            allflines1 = allflines;
+            FeatureLinesManipulate( allflines1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+            FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView1_rot(), 0 );
+
+            allflines2 = allflines;
+            FeatureLinesManipulate( allflines2, m_Vehicle->m_SVGView2(), m_Vehicle->m_SVGView2_rot(), shiftvec );
+            FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView2_rot(), 0 );
+
+            WriteSVGPolylines2D( root, allflines1, svgbox );
+            WriteSVGPolylines2D( root, allflines2, svgbox );
+        }
+        else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_2VER )
+        {
+            allflines1 = allflines;
+            FeatureLinesManipulate( allflines1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+            FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView1_rot(), 0 );
+
+            allflines3 = allflines;
+            FeatureLinesManipulate( allflines3, m_Vehicle->m_SVGView3(), m_Vehicle->m_SVGView3_rot(), shiftvec );
+            FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView3_rot(), 0 );
+
+            WriteSVGPolylines2D( root, allflines1, svgbox );
+            WriteSVGPolylines2D( root, allflines3, svgbox );
+        }
+        else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_4 )
+        {
+            allflines1 = allflines;
+
+            FeatureLinesManipulate( allflines1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+            FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView1_rot(), m_Vehicle->m_SVGView2_rot() );
+            FeatureLinesShift( allflines1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView1_rot(), m_Vehicle->m_SVGView3_rot() );
+
+            allflines2 = allflines;
+            FeatureLinesManipulate( allflines2, m_Vehicle->m_SVGView2(), m_Vehicle->m_SVGView2_rot(), shiftvec );
+            FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView2_rot(), m_Vehicle->m_SVGView1_rot() );
+            FeatureLinesShift( allflines2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView2_rot(), m_Vehicle->m_SVGView4_rot() );
+
+            allflines3 = allflines;
+            FeatureLinesManipulate( allflines3, m_Vehicle->m_SVGView3(), m_Vehicle->m_SVGView3_rot(), shiftvec );
+            FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView3_rot(), m_Vehicle->m_SVGView4_rot() );
+            FeatureLinesShift( allflines3, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView3_rot(), m_Vehicle->m_SVGView1_rot() );
+
+            allflines4 = allflines;
+            FeatureLinesManipulate( allflines4, m_Vehicle->m_SVGView4(), m_Vehicle->m_SVGView4_rot(), shiftvec );
+            FeatureLinesShift( allflines4, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView4_rot(), m_Vehicle->m_SVGView3_rot() );
+            FeatureLinesShift( allflines4, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView4_rot(), m_Vehicle->m_SVGView2_rot() );
+
+            WriteSVGPolylines2D( root, allflines1, svgbox );
+            WriteSVGPolylines2D( root, allflines2, svgbox );
+            WriteSVGPolylines2D( root, allflines3, svgbox );
+            WriteSVGPolylines2D( root, allflines4, svgbox );
+        }
+    }
+}
+
+void Geom::WriteProjectionLinesSVG( xmlNodePtr root, const BndBox &svgbox )
+{
+    // Bounding box diagonal, used to separate multi-view drawings
+    vec3d shiftvec = svgbox.GetMax() - svgbox.GetMin();
+
+    // Shift the vehicle bounding box to align with the +x, +y, +z axes at the orgin
+    vec3d to_orgin = GetVecToOrgin( svgbox );
+
+    if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_1 )
+    {
+        vector < vector < vec3d > > projectionvec = GetGeomProjectionLines( m_Vehicle->m_SVGView1(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+        WriteSVGPolylines2D( root, projectionvec, svgbox );
+    }
+    else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_2HOR )
+    {
+        vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_SVGView1(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+        FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView1_rot(), 0 );
+        WriteSVGPolylines2D( root, projectionvec1, svgbox );
+
+        vector < vector < vec3d > > projectionvec2 = GetGeomProjectionLines( m_Vehicle->m_SVGView2(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec2, m_Vehicle->m_SVGView2(), m_Vehicle->m_SVGView2_rot(), shiftvec );
+        FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView2_rot(), 0 );
+        WriteSVGPolylines2D( root, projectionvec2, svgbox );
+    }
+    else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_2VER )
+    {
+        vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_SVGView1(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+        FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView1_rot(), 0 );
+        WriteSVGPolylines2D( root, projectionvec1, svgbox );
+
+        vector < vector < vec3d > > projectionvec3 = GetGeomProjectionLines( m_Vehicle->m_SVGView3(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec3, m_Vehicle->m_SVGView3(), m_Vehicle->m_SVGView3_rot(), shiftvec );
+        FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView3_rot(), 0 );
+        WriteSVGPolylines2D( root, projectionvec3, svgbox );
+
+    }
+    else if ( m_Vehicle->m_SVGView() == vsp::VIEW_NUM::VIEW_4 )
+    {
+        vector < vector < vec3d > > projectionvec1 = GetGeomProjectionLines( m_Vehicle->m_SVGView1(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec1, m_Vehicle->m_SVGView1(), m_Vehicle->m_SVGView1_rot(), shiftvec );
+        FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView1_rot(), m_Vehicle->m_SVGView2_rot() );
+        FeatureLinesShift( projectionvec1, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView1_rot(), m_Vehicle->m_SVGView3_rot() );
+        WriteSVGPolylines2D( root, projectionvec1, svgbox );
+
+        vector < vector < vec3d > > projectionvec2 = GetGeomProjectionLines( m_Vehicle->m_SVGView2(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec2, m_Vehicle->m_SVGView2(), m_Vehicle->m_SVGView2_rot(), shiftvec );
+        FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::UP, m_Vehicle->m_SVGView2_rot(), m_Vehicle->m_SVGView1_rot() );
+        FeatureLinesShift( projectionvec2, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView2_rot(), m_Vehicle->m_SVGView4_rot() );
+        WriteSVGPolylines2D( root, projectionvec2, svgbox );
+
+        vector < vector < vec3d > > projectionvec3 = GetGeomProjectionLines( m_Vehicle->m_SVGView3(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec3, m_Vehicle->m_SVGView3(), m_Vehicle->m_SVGView3_rot(), shiftvec );
+        FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView3_rot(), m_Vehicle->m_SVGView4_rot() );
+        FeatureLinesShift( projectionvec3, shiftvec, vsp::VIEW_SHIFT::LEFT, m_Vehicle->m_SVGView3_rot(), m_Vehicle->m_SVGView1_rot() );
+        WriteSVGPolylines2D( root, projectionvec3, svgbox );
+
+        vector < vector < vec3d > > projectionvec4 = GetGeomProjectionLines( m_Vehicle->m_SVGView4(), to_orgin );
+
+        FeatureLinesManipulate( projectionvec4, m_Vehicle->m_SVGView4(), m_Vehicle->m_SVGView4_rot(), shiftvec );
+        FeatureLinesShift( projectionvec4, shiftvec, vsp::VIEW_SHIFT::DOWN, m_Vehicle->m_SVGView4_rot(), m_Vehicle->m_SVGView3_rot() );
+        FeatureLinesShift( projectionvec4, shiftvec, vsp::VIEW_SHIFT::RIGHT, m_Vehicle->m_SVGView4_rot(), m_Vehicle->m_SVGView2_rot() );
+        WriteSVGPolylines2D( root, projectionvec4, svgbox );
+    }
+}
+
 void Geom::UpdateDrawObj()
 {
     m_FeatureDrawObj_vec.clear();
@@ -1345,6 +2000,330 @@ void Geom::UpdateDrawObj()
 
     //==== Bounding Box ====//
     m_HighlightDrawObj.m_PntVec = m_BBox.GetBBoxDrawLines();
+
+    //=== Axis ===//
+    m_AxisDrawObj_vec.clear();
+    m_AxisDrawObj_vec.resize( 3 );
+    for ( int i = 0; i < 3; i++ )
+    {
+        MakeDashedLine( m_AttachOrigin,  m_AttachAxis[i], 4, m_AxisDrawObj_vec[i].m_PntVec );
+        vec3d c;
+        c.v[i] = 1.0;
+        m_AxisDrawObj_vec[i].m_LineColor = c;
+        m_AxisDrawObj_vec[i].m_GeomChanged = true;
+    }
+}
+
+void Geom::UpdateDegenDrawObj()
+{
+    //=== DegenGeom ===//
+    vector< DegenGeom > DegenGeomVec; // Vector of geom in degenerate representation
+    CreateDegenGeomPreview( DegenGeomVec );
+
+    m_DegenSurfDrawObj_vec.clear();
+    m_DegenPlateDrawObj_vec.clear();
+    m_DegenCamberPlateDrawObj_vec.clear();
+    m_DegenSubSurfDrawObj_vec.clear();
+
+    for ( int i = 0; i < (int)m_SurfVec.size(); i++ )
+    {
+        //=== Degen Surface ===//
+        DegenSurface degen_surf = DegenGeomVec[i].getDegenSurf();
+
+        DrawObj degen_surf_draw_obj;
+        degen_surf_draw_obj.m_GeomChanged = true;
+
+        for ( int j = 0; j < degen_surf.x.size() - 1; j++ )
+        {
+            for ( int k = 0; k < degen_surf.x[j].size() - 1; k++ )
+            {
+                // Define Quads
+                vec3d corner1, corner2, corner3, corner4, norm;
+
+                corner1 = degen_surf.x[j][k];
+                corner2 = degen_surf.x[j + 1][k];
+                corner3 = degen_surf.x[j + 1][k + 1];
+                corner4 = degen_surf.x[j][k + 1];
+
+                degen_surf_draw_obj.m_PntVec.push_back( corner1 );
+                degen_surf_draw_obj.m_PntVec.push_back( corner2 );
+                degen_surf_draw_obj.m_PntVec.push_back( corner3 );
+                degen_surf_draw_obj.m_PntVec.push_back( corner4 );
+
+                norm = degen_surf.nvec[j][k];
+
+                // Set Normal Vector
+                for ( int m = 0; m < 4; m++ )
+                {
+                    degen_surf_draw_obj.m_NormVec.push_back( norm );
+                }
+            }
+        }
+
+        m_DegenSurfDrawObj_vec.push_back( degen_surf_draw_obj );
+
+        //=== Degen Plate and Cambered Plate ===//
+        vector < DegenPlate > degen_plate_vec = DegenGeomVec[i].getDegenPlates();
+
+        for ( int j = 0; j < degen_plate_vec.size(); j++ )
+        {
+            DrawObj degen_plate_draw_obj;
+            DrawObj degen_camber_plate_draw_obj;
+
+            degen_plate_draw_obj.m_GeomChanged = true;
+            degen_camber_plate_draw_obj.m_GeomChanged = true;
+
+            for ( int k = 0; k < degen_plate_vec[j].x.size() - 1; k++ )
+            {
+                for ( int n = 0; n < degen_plate_vec[j].x[k].size() - 1; n++ )
+                {
+                    // Define Plate Quads
+                    vec3d corner1, corner2, corner3, corner4, norm;
+
+                    corner1 = degen_plate_vec[j].x[k][n];
+                    corner2 = degen_plate_vec[j].x[k][n + 1];
+                    corner3 = degen_plate_vec[j].x[k + 1][n + 1];
+                    corner4 = degen_plate_vec[j].x[k + 1][n];
+
+                    degen_plate_draw_obj.m_PntVec.push_back( corner1 );
+                    degen_plate_draw_obj.m_PntVec.push_back( corner2 );
+                    degen_plate_draw_obj.m_PntVec.push_back( corner3 );
+                    degen_plate_draw_obj.m_PntVec.push_back( corner4 );
+
+                    norm = degen_plate_vec[j].nPlate[k];
+
+                    // Set Normal Vectors
+                    for ( int m = 0; m < 4; m++ )
+                    {
+                        degen_plate_draw_obj.m_NormVec.push_back( norm );
+                    }
+
+                    // Define Cambered Plate Quads
+                    vec3d camber_corner1, camber_corner2, camber_corner3, camber_corner4;
+                    vec3d norm1, norm2, norm3, norm4;
+
+                    norm1 = degen_plate_vec[j].nCamber[k][n];
+                    norm2 = degen_plate_vec[j].nCamber[k][n+1];
+                    norm3 = degen_plate_vec[j].nCamber[k+1][n+1];
+                    norm4 = degen_plate_vec[j].nCamber[k+1][n];
+
+                    camber_corner1 = corner1 + ( degen_plate_vec[j].zcamber[k][n] * norm1 );
+                    camber_corner2 = corner2 + ( degen_plate_vec[j].zcamber[k][n + 1] * norm2);
+                    camber_corner3 = corner3 + ( degen_plate_vec[j].zcamber[k + 1][n + 1] * norm3 );
+                    camber_corner4 = corner4 + ( degen_plate_vec[j].zcamber[k + 1][n] * norm4 );
+
+                    degen_camber_plate_draw_obj.m_PntVec.push_back( camber_corner1 );
+                    degen_camber_plate_draw_obj.m_PntVec.push_back( camber_corner2 );
+                    degen_camber_plate_draw_obj.m_PntVec.push_back( camber_corner3 );
+                    degen_camber_plate_draw_obj.m_PntVec.push_back( camber_corner4 );
+
+                    // Calculate normal for cambered plate shading (camber normal is from DegenGeom is the direction between the top and bottom surface points)
+
+                    vec3d u1, u2, v1, v2, u, v;
+
+                    u1 = camber_corner4 - camber_corner1;
+                    u2 = camber_corner3 - camber_corner2;
+
+                    if ( u1.mag() > u2.mag() )
+                    {
+                        u = u1;
+                    }
+                    else
+                    {
+                        u = u2;
+                    }
+
+                    v1 = camber_corner2 - camber_corner1;
+                    v2 = camber_corner3 - camber_corner4;
+
+                    if ( v1.mag() > v2.mag() )
+                    {
+                        v = v1;
+                    }
+                    else
+                    {
+                        v = v2;
+                    }
+
+                    vec3d camber_draw_norm = cross( v, u );
+                    camber_draw_norm.normalize();
+
+                    if ( m_SurfVec[i].GetFlipNormal() )
+                    {
+                        camber_draw_norm = -1 * camber_draw_norm;
+                    }
+
+                    for ( int m = 0; m < 4; m++ )
+                    {
+                        degen_camber_plate_draw_obj.m_NormVec.push_back( camber_draw_norm );
+                    }
+                }
+            }
+
+            m_DegenPlateDrawObj_vec.push_back( degen_plate_draw_obj );
+            m_DegenCamberPlateDrawObj_vec.push_back( degen_camber_plate_draw_obj );
+        }
+
+        //=== Degen SubSurface ===//
+        vector < DegenSubSurf > degen_subsurf_vec = DegenGeomVec[i].getDegenSubSurfs();
+
+        for ( int j = 0; j < degen_subsurf_vec.size(); j++ )
+        {
+            DrawObj degen_subsurface_draw_obj;
+            degen_subsurface_draw_obj.m_GeomChanged = true;
+
+            if ( degen_subsurf_vec[j].typeId == SS_LINE )
+            {
+                if ( degen_subsurf_vec[j].u[0] == degen_subsurf_vec[j].u.back() ) // Constant U
+                {
+                    int u_index_low, u_index_high;
+                    double u_value_low, u_value_high;
+
+                    // Find uw indexes and values next to DegenSubSurface const u value
+                    for ( int m = 1; m < degen_surf.u.size(); m++ )
+                    {
+                        if ( ( degen_surf.u[m][0] >= degen_subsurf_vec[j].u[0] ) && ( degen_surf.u[m - 1][0] <= degen_subsurf_vec[j].u[0] ) )
+                        {
+                            u_index_low = m - 1;
+                            u_index_high = m;
+                            u_value_low = degen_surf.u[m - 1][0];
+                            u_value_high = degen_surf.u[m][0];
+
+                            break;
+                        }
+                    }
+
+                    // Linear Interpolation of DegenSurface uw indexes and values to DgenSubsurface uw index
+                    double degen_surf_u_index = u_index_low + ( ( u_index_high - u_index_low ) * ( ( degen_subsurf_vec[j].u[0] - u_value_low ) / ( u_value_high - u_value_low ) ) );
+
+                    for ( int n = 0; n < degen_surf.x[0].size(); n++ )
+                    {
+                        // Interpolation of uw indexes to vec3d coordinates
+                        vec3d uw_pnt_low = degen_surf.x[u_index_low][n];
+                        vec3d uw_pnt_high = degen_surf.x[u_index_high][n];
+
+                        vec3d degen_subsurf_pnt = uw_pnt_low + ( ( degen_surf_u_index - u_index_low ) * ( uw_pnt_high - uw_pnt_low ) );
+
+                        degen_subsurface_draw_obj.m_PntVec.push_back( degen_subsurf_pnt );
+                    }
+                }
+                else if ( degen_subsurf_vec[j].w[0] == degen_subsurf_vec[j].w.back() ) // Constant W
+                {
+                    int w_index_low, w_index_high;
+                    double w_value_low, w_value_high;
+
+                    // Find uw indexes and values next to DegenSubSurface const u value
+                    for ( int m = 1; m < degen_surf.w.size(); m++ )
+                    {
+                        if ( ( degen_surf.w[0][m] >= degen_subsurf_vec[j].w[0] ) && ( degen_surf.w[0][m - 1] <= degen_subsurf_vec[j].w[0] ) )
+                        {
+                            w_index_low = m - 1;
+                            w_index_high = m;
+                            w_value_low = degen_surf.w[0][m - 1];
+                            w_value_high = degen_surf.w[0][m];
+
+                            break;
+                        }
+                    }
+
+                    // Linear Interpolation of DegenSurface uw indexes and values to DgenSubsurface uw index
+                    double degen_surf_w_index = w_index_low + ( ( w_index_high - w_index_low ) * ( ( degen_subsurf_vec[j].w[0] - w_value_low ) / ( w_value_high - w_value_low ) ) );
+
+                    for ( int n = 0; n < degen_surf.x.size(); n++ )
+                    {
+                        // Interpolation of uw indexes to vec3d coordinates
+                        vec3d uw_pnt_low = degen_surf.x[n][w_index_low];
+                        vec3d uw_pnt_high = degen_surf.x[n][w_index_high];
+
+                        vec3d degen_subsurf_pnt = uw_pnt_low + ( ( degen_surf_w_index - w_index_low ) * ( uw_pnt_high - uw_pnt_low ) );
+
+                        degen_subsurface_draw_obj.m_PntVec.push_back( degen_subsurf_pnt );
+                    }
+                }
+            }
+            else
+            {
+                for ( int k = 0; k < degen_subsurf_vec[j].u.size(); k++ )
+                {
+                    vec2d uw_index_low, uw_index_high, uw_value_low, uw_value_high, uw_value_degen_subsurf;
+
+                    // Check for u or w values outside of the min amd max u and w for the DegenSurface
+                    if ( degen_subsurf_vec[j].u[k] < degen_surf.u[0][0] )
+                    {
+                        uw_value_degen_subsurf.set_x( degen_surf.u[0][0] );
+                    }
+                    else if ( degen_subsurf_vec[j].u[k] > degen_surf.u[degen_surf.u.size() - 1][0] )
+                    {
+                        uw_value_degen_subsurf.set_x( degen_surf.u[degen_surf.u.size() - 1][0] );
+                    }
+                    else
+                    {
+                        uw_value_degen_subsurf.set_x( degen_subsurf_vec[j].u[k] );
+                    }
+
+                    if ( degen_subsurf_vec[j].w[k] < degen_surf.w[0][0] )
+                    {
+                        uw_value_degen_subsurf.set_y( degen_surf.w[0][0] );
+                    }
+                    else if ( degen_subsurf_vec[j].w[k] > degen_surf.w[0][degen_surf.w[0].size() - 1] )
+                    {
+                        uw_value_degen_subsurf.set_y( degen_surf.w[0][degen_surf.w[0].size() - 1] );
+                    }
+                    else
+                    {
+                        uw_value_degen_subsurf.set_y( degen_subsurf_vec[j].w[k] );
+                    }
+
+                    // Find the uw indexes and values next to the DegenSubsurface uw value
+                    for ( int m = 1; m < degen_surf.u.size(); m++ )
+                    {
+                        if ( ( degen_surf.u[m][0] >= uw_value_degen_subsurf.x() ) && ( degen_surf.u[m - 1][0] <= uw_value_degen_subsurf.x() ) )
+                        {
+                            uw_index_low.set_x( m - 1 );
+                            uw_index_high.set_x( m );
+                            uw_value_low.set_x( degen_surf.u[m - 1][0] );
+                            uw_value_high.set_x( degen_surf.u[m][0] );
+
+                            for ( int n = 1; n < degen_surf.w[0].size(); n++ )
+                            {
+                                if ( ( degen_surf.w[0][n] >= uw_value_degen_subsurf.y() ) && ( degen_surf.w[0][n - 1] <= uw_value_degen_subsurf.y() ) )
+                                {
+                                    uw_index_low.set_y( n - 1 );
+                                    uw_index_high.set_y( n );
+                                    uw_value_low.set_y( degen_surf.w[0][n - 1] );
+                                    uw_value_high.set_y( degen_surf.w[0][n] );
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    // Linear Interpolation of DegenSurface uw indexes and values to DgenSubsurface uw index
+                    vec2d degen_subsurf_index;
+                    degen_subsurf_index.set_x( uw_index_low.x() + ( ( uw_index_high.x() - uw_index_low.x() ) * ( ( uw_value_degen_subsurf.x() - uw_value_low.x() ) / ( uw_value_high.x() - uw_value_low.x() ) ) ) );
+                    degen_subsurf_index.set_y( uw_index_low.y() + ( ( uw_index_high.y() - uw_index_low.y() ) * ( ( uw_value_degen_subsurf.y() - uw_value_low.y() ) / ( uw_value_high.y() - uw_value_low.y() ) ) ) );
+
+                    // Bilinear Interpolation of uw indexes to vec3d coordinates
+                    vec3d uw_pnt_low_low = degen_surf.x[(int)uw_index_low.x()][(int)uw_index_low.y()];
+                    vec3d uw_pnt_low_high = degen_surf.x[(int)uw_index_low.x()][(int)uw_index_high.y()];
+                    vec3d uw_pnt_high_high = degen_surf.x[(int)uw_index_high.x()][(int)uw_index_high.y()];
+                    vec3d uw_pnt_high_low = degen_surf.x[(int)uw_index_high.x()][(int)uw_index_low.y()];
+
+                    // Horizontal interpolation
+                    vec3d uw_mid_low = uw_pnt_low_low + ( ( degen_subsurf_index.x() - uw_index_low.x() ) * ( uw_pnt_high_low - uw_pnt_low_low ) );
+                    vec3d uw_mid_high = uw_pnt_low_high + ( ( degen_subsurf_index.x() - uw_index_low.x() ) * ( uw_pnt_high_high - uw_pnt_low_high ) );
+
+                    // Vertical interpolation
+                    vec3d degen_subsurf_pnt = uw_mid_low + ( ( degen_subsurf_index.y() - uw_index_low.y() ) * ( uw_mid_high - uw_mid_low ) );
+
+                    degen_subsurface_draw_obj.m_PntVec.push_back( degen_subsurf_pnt );
+                }
+            }
+
+            m_DegenSubSurfDrawObj_vec.push_back( degen_subsurface_draw_obj );
+        }
+    }
 }
 
 //==== Encode Data Into XML Data Struct ====//
@@ -1510,7 +2489,7 @@ void Geom::ReadV2File( xmlNodePtr &root )
 
     m_AbsRelFlag = XmlUtil::FindInt( root, "RelXFormFlag", m_AbsRelFlag() );
 
-    int materialID = XmlUtil::FindInt( root, "MaterialID", materialID );
+    int materialID = XmlUtil::FindInt( root, "MaterialID", 0 );
 
     vector < string > v2materials;
     v2materials.push_back( "Default" );
@@ -1543,9 +2522,9 @@ void Geom::ReadV2File( xmlNodePtr &root )
     m_TessW = XmlUtil::FindInt( root, "NumPnts", m_TessW() );
     m_TessU = XmlUtil::FindInt( root, "NumXsecs", m_TessU() );
 
-    int outputFlag   = XmlUtil::FindInt( root, "OutputFlag", outputFlag );
-    int outputNameID = XmlUtil::FindInt( root, "OutputNameID", outputNameID );
-    int displayChildrenFlag = XmlUtil::FindInt( root, "DisplayChildrenFlag", displayChildrenFlag );
+    int outputFlag   = XmlUtil::FindInt( root, "OutputFlag", 0 );
+    int outputNameID = XmlUtil::FindInt( root, "OutputNameID", 0 );
+    int displayChildrenFlag = XmlUtil::FindInt( root, "DisplayChildrenFlag", 0 );
 
     m_MassPrior = XmlUtil::FindInt( root, "MassPrior", m_MassPrior() );
     m_ShellFlag = XmlUtil::FindInt( root, "ShellFlag", m_ShellFlag() );
@@ -1575,23 +2554,23 @@ void Geom::ReadV2File( xmlNodePtr &root )
     m_Density = XmlUtil::FindDouble( root, "Density", m_Density() );
     m_MassArea = XmlUtil::FindDouble( root, "ShellMassArea", m_MassArea() );
 
-    int refFlag = XmlUtil::FindInt( root, "RefFlag", refFlag );
-    double refArea = XmlUtil::FindDouble( root, "RefArea", refArea );
-    double refSpan = XmlUtil::FindDouble( root, "RefSpan", refSpan );
-    double refCbar = XmlUtil::FindDouble( root, "RefCbar", refCbar );
-    int autoRefAreaFlag = XmlUtil::FindInt( root, "AutoRefAreaFlag", autoRefAreaFlag );
-    int autoRefSpanFlag = XmlUtil::FindInt( root, "AutoRefSpanFlag", autoRefSpanFlag );
-    int autoRefCbarFlag = XmlUtil::FindInt( root, "AutoRefCbarFlag", autoRefCbarFlag );
+    int refFlag = XmlUtil::FindInt( root, "RefFlag", 0 );
+    double refArea = XmlUtil::FindDouble( root, "RefArea", 0 );
+    double refSpan = XmlUtil::FindDouble( root, "RefSpan", 0 );
+    double refCbar = XmlUtil::FindDouble( root, "RefCbar", 0 );
+    int autoRefAreaFlag = XmlUtil::FindInt( root, "AutoRefAreaFlag", 0 );
+    int autoRefSpanFlag = XmlUtil::FindInt( root, "AutoRefSpanFlag", 0 );
+    int autoRefCbarFlag = XmlUtil::FindInt( root, "AutoRefCbarFlag", 0 );
     vec3d aeroCenter;
     aeroCenter.set_x( XmlUtil::FindDouble( root, "AeroCenter_X", aeroCenter.x() ) );
     aeroCenter.set_y( XmlUtil::FindDouble( root, "AeroCenter_Y", aeroCenter.y() ) );
     aeroCenter.set_z( XmlUtil::FindDouble( root, "AeroCenter_Z", aeroCenter.z() ) );
-    int autoAeroCenterFlag = XmlUtil::FindInt( root, "AutoAeroCenterFlag", autoAeroCenterFlag );
+    int autoAeroCenterFlag = XmlUtil::FindInt( root, "AutoAeroCenterFlag", 0 );
 
     m_WakeActiveFlag = !!(XmlUtil::FindInt( root, "WakeActiveFlag", m_WakeActiveFlag() ));
 
     //==== Read Attach Flags ====//
-    int posAttachFlag = XmlUtil::FindInt( root, "PosAttachFlag", posAttachFlag );
+    int posAttachFlag = XmlUtil::FindInt( root, "PosAttachFlag", 0 );
 
     // A series of flags to override specific coordinates
     bool overrideRelTrans = false;
@@ -1754,88 +2733,96 @@ void Geom::LoadDrawObjs( vector< DrawObj* > & draw_obj_vec )
 {
     char str[256];
 
-    for ( int i = 0 ; i < ( int )m_WireShadeDrawObj_vec.size() ; i++ )
+    if ( m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_BEZIER )
     {
-        // Symmetry drawObjs have same m_ID. Make them unique by adding index
-        // at the end of m_ID.
-        sprintf( str, "_%d", i );
-        m_WireShadeDrawObj_vec[i].m_GeomID = m_ID + str;
-        m_WireShadeDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
-
-        // Set Render Destination to Main VSP Window.
-        m_WireShadeDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
-
-        Material * material = m_GuiDraw.getMaterial();
-
-        for ( int j = 0; j < 4; j++ )
-            m_WireShadeDrawObj_vec[i].m_MaterialInfo.Ambient[j] = (float)material->m_Ambi[j];
-
-        for ( int j = 0; j < 4; j++ )
-            m_WireShadeDrawObj_vec[i].m_MaterialInfo.Diffuse[j] = (float)material->m_Diff[j];
-
-        for ( int j = 0; j < 4; j++ )
-            m_WireShadeDrawObj_vec[i].m_MaterialInfo.Specular[j] = (float)material->m_Spec[j];
-
-        for ( int j = 0; j < 4; j++ )
-            m_WireShadeDrawObj_vec[i].m_MaterialInfo.Emission[j] = (float)material->m_Emis[j];
-
-        m_WireShadeDrawObj_vec[i].m_MaterialInfo.Shininess = (float)material->m_Shininess;
-
-        vec3d lineColor = vec3d( m_GuiDraw.GetWireColor().x() / 255.0,
-            m_GuiDraw.GetWireColor().y() / 255.0,
-            m_GuiDraw.GetWireColor().z() / 255.0 );
-
-        switch( m_GuiDraw.GetDrawType() )
+        for ( int i = 0; i < (int)m_WireShadeDrawObj_vec.size(); i++ )
         {
-        case GeomGuiDraw::GEOM_DRAW_WIRE:
-            m_WireShadeDrawObj_vec[i].m_LineWidth = 1.0;
-            m_WireShadeDrawObj_vec[i].m_LineColor = lineColor;
-            m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_MESH;
-            draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
-            break;
+            // Symmetry drawObjs have same m_ID. Make them unique by adding index
+            // at the end of m_ID.
+            sprintf( str, "_%d", i );
+            m_WireShadeDrawObj_vec[i].m_GeomID = m_ID + str;
+            m_WireShadeDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
 
-        case GeomGuiDraw::GEOM_DRAW_HIDDEN:
-            m_WireShadeDrawObj_vec[i].m_LineColor = lineColor;
-            m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_HIDDEN_MESH;
-            draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
-            break;
+            // Set Render Destination to Main VSP Window.
+            m_WireShadeDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
 
-        case GeomGuiDraw::GEOM_DRAW_SHADE:
-            m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_MESH;
-            draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
-            break;
+            Material * material = m_GuiDraw.getMaterial();
 
-        case GeomGuiDraw::GEOM_DRAW_NONE:
-            m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_MESH;
-            m_WireShadeDrawObj_vec[i].m_Visible = false;
-            draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
-            break;
+            for ( int j = 0; j < 4; j++ )
+                m_WireShadeDrawObj_vec[i].m_MaterialInfo.Ambient[j] = (float)material->m_Ambi[j];
 
-        case GeomGuiDraw::GEOM_DRAW_TEXTURE:
-            m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_TEXTURED_MESH;
+            for ( int j = 0; j < 4; j++ )
+                m_WireShadeDrawObj_vec[i].m_MaterialInfo.Diffuse[j] = (float)material->m_Diff[j];
 
-            // Reload texture infos.
-            m_WireShadeDrawObj_vec[i].m_TextureInfos.clear();
-            vector<Texture*> texList = m_GuiDraw.getTextureMgr()->FindTextureVec( m_GuiDraw.getTextureMgr()->GetTextureVec() );
-            for( int j = 0; j < ( int )texList.size(); j++ )
+            for ( int j = 0; j < 4; j++ )
+                m_WireShadeDrawObj_vec[i].m_MaterialInfo.Specular[j] = (float)material->m_Spec[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_WireShadeDrawObj_vec[i].m_MaterialInfo.Emission[j] = (float)material->m_Emis[j];
+
+            m_WireShadeDrawObj_vec[i].m_MaterialInfo.Shininess = (float)material->m_Shininess;
+
+            vec3d lineColor = vec3d( m_GuiDraw.GetWireColor().x() / 255.0,
+                m_GuiDraw.GetWireColor().y() / 255.0,
+                m_GuiDraw.GetWireColor().z() / 255.0 );
+
+            switch ( m_GuiDraw.GetDrawType() )
             {
-                DrawObj::TextureInfo info;
-                info.FileName = texList[j]->m_FileName;
-                info.UScale = ( float )texList[j]->m_UScale.Get();
-                info.WScale = ( float )texList[j]->m_WScale.Get();
-                info.U = ( float )texList[j]->m_U.Get();
-                info.W = ( float )texList[j]->m_W.Get();
-                info.Transparency = ( float )texList[j]->m_Transparency.Get();
-                info.UFlip = texList[j]->m_FlipU.Get();
-                info.WFlip = texList[j]->m_FlipW.Get();
-                info.ID = texList[j]->GetID();
-                m_WireShadeDrawObj_vec[i].m_TextureInfos.push_back( info );
+            case GeomGuiDraw::GEOM_DRAW_WIRE:
+                m_WireShadeDrawObj_vec[i].m_LineWidth = 1.0;
+                m_WireShadeDrawObj_vec[i].m_LineColor = lineColor;
+                m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_MESH;
+                draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_HIDDEN:
+                m_WireShadeDrawObj_vec[i].m_LineColor = lineColor;
+                m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_HIDDEN_MESH;
+                draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_SHADE:
+                m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_MESH;
+                draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_NONE:
+                m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_MESH;
+                m_WireShadeDrawObj_vec[i].m_Visible = false;
+                draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_TEXTURE:
+                m_WireShadeDrawObj_vec[i].m_Type = DrawObj::VSP_TEXTURED_MESH;
+
+                // Reload texture infos.
+                m_WireShadeDrawObj_vec[i].m_TextureInfos.clear();
+                vector<Texture*> texList = m_GuiDraw.getTextureMgr()->FindTextureVec( m_GuiDraw.getTextureMgr()->GetTextureVec() );
+                for ( int j = 0; j < (int)texList.size(); j++ )
+                {
+                    DrawObj::TextureInfo info;
+                    info.FileName = texList[j]->m_FileName;
+                    info.UScale = (float)texList[j]->m_UScale.Get();
+                    info.WScale = (float)texList[j]->m_WScale.Get();
+                    info.U = (float)texList[j]->m_U.Get();
+                    info.W = (float)texList[j]->m_W.Get();
+                    info.Transparency = (float)texList[j]->m_Transparency.Get();
+                    info.UFlip = texList[j]->m_FlipU.Get();
+                    info.WFlip = texList[j]->m_FlipW.Get();
+                    info.ID = texList[j]->GetID();
+                    m_WireShadeDrawObj_vec[i].m_TextureInfos.push_back( info );
+                }
+                draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
+                break;
             }
-            draw_obj_vec.push_back( &m_WireShadeDrawObj_vec[i] );
-            break;
         }
     }
+    else
+    {
+        UpdateDegenDrawObj();
+    }
 
+    // Load BoundingBox and Axes
     if ( m_Vehicle->IsGeomActive( m_ID ) )
     {
         m_HighlightDrawObj.m_Screen = DrawObj::VSP_MAIN_SCREEN;
@@ -1844,30 +2831,252 @@ void Geom::LoadDrawObjs( vector< DrawObj* > & draw_obj_vec )
         m_HighlightDrawObj.m_LineColor = vec3d( 1.0, 0., 0.0 );
         m_HighlightDrawObj.m_Type = DrawObj::VSP_LINES;
         draw_obj_vec.push_back( &m_HighlightDrawObj );
-    }
 
-    // Load Feature Lines
-    if ( m_GuiDraw.GetDispFeatureFlag() && !m_GuiDraw.GetNoShowFlag() )
-    {
-        for ( int i = 0; i < m_FeatureDrawObj_vec.size(); i++ )
+        for ( int i = 0; i < m_AxisDrawObj_vec.size(); i++ )
         {
-            m_FeatureDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+            m_AxisDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
             sprintf( str, "_%d", i );
-            m_FeatureDrawObj_vec[i].m_GeomID = m_ID + "Feature_" + str;
-            m_FeatureDrawObj_vec[i].m_LineWidth = 1.0;
-            m_FeatureDrawObj_vec[i].m_LineColor = vec3d( 0.0, 0.0, 0.0 );
-            m_FeatureDrawObj_vec[i].m_Type = DrawObj::VSP_LINES;
-            draw_obj_vec.push_back( &m_FeatureDrawObj_vec[i] );
+            m_AxisDrawObj_vec[i].m_GeomID = m_ID + "Axis_" + str;
+            m_AxisDrawObj_vec[i].m_LineWidth = 2.0;
+            m_AxisDrawObj_vec[i].m_Type = DrawObj::VSP_LINES;
+            draw_obj_vec.push_back( &m_AxisDrawObj_vec[i] );
         }
     }
 
-    // Load Subsurfaces
-    RecolorSubSurfs( SubSurfaceMgr.GetCurrSurfInd() );
-    if ( m_GuiDraw.GetDispSubSurfFlag() && !m_GuiDraw.GetNoShowFlag() )
+    if ( m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_BEZIER )
     {
-        for ( int i = 0 ; i < ( int )m_SubSurfVec.size() ; i++ )
+        // Load Feature Lines
+        if ( m_GuiDraw.GetDispFeatureFlag() && !m_GuiDraw.GetNoShowFlag() )
         {
-            m_SubSurfVec[i]->LoadDrawObjs( draw_obj_vec );
+            for ( int i = 0; i < m_FeatureDrawObj_vec.size(); i++ )
+            {
+                m_FeatureDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+                sprintf( str, "_%d", i );
+                m_FeatureDrawObj_vec[i].m_GeomID = m_ID + "Feature_" + str;
+                m_FeatureDrawObj_vec[i].m_LineWidth = 1.0;
+                m_FeatureDrawObj_vec[i].m_LineColor = vec3d( 0.0, 0.0, 0.0 );
+                m_FeatureDrawObj_vec[i].m_Type = DrawObj::VSP_LINES;
+                draw_obj_vec.push_back( &m_FeatureDrawObj_vec[i] );
+            }
+        }
+
+        // Load Subsurfaces
+        RecolorSubSurfs( SubSurfaceMgr.GetCurrSurfInd() );
+        if ( m_GuiDraw.GetDispSubSurfFlag() && !m_GuiDraw.GetNoShowFlag() )
+        {
+            for ( int i = 0; i < (int)m_SubSurfVec.size(); i++ )
+            {
+                m_SubSurfVec[i]->LoadDrawObjs( draw_obj_vec );
+            }
+        }
+    }
+    else if ( m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_DEGEN_SURF )
+    {
+        // Load DegenGeom
+        for ( int i = 0; i < m_DegenSurfDrawObj_vec.size(); i++ )
+        {
+            m_DegenSurfDrawObj_vec[i].m_GeomID = m_ID + "Degen_Surf_" + std::to_string( i );
+            m_DegenSurfDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
+
+            // Set Render Destination to Main VSP Window.
+            m_DegenSurfDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+
+            Material * material = m_GuiDraw.getMaterial();
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenSurfDrawObj_vec[i].m_MaterialInfo.Ambient[j] = (float)material->m_Ambi[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenSurfDrawObj_vec[i].m_MaterialInfo.Diffuse[j] = (float)material->m_Diff[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenSurfDrawObj_vec[i].m_MaterialInfo.Specular[j] = (float)material->m_Spec[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenSurfDrawObj_vec[i].m_MaterialInfo.Emission[j] = (float)material->m_Emis[j];
+
+            m_DegenSurfDrawObj_vec[i].m_MaterialInfo.Shininess = (float)material->m_Shininess;
+
+            vec3d lineColor = vec3d( m_GuiDraw.GetWireColor().x() / 255.0,
+                                        m_GuiDraw.GetWireColor().y() / 255.0,
+                                        m_GuiDraw.GetWireColor().z() / 255.0 );
+
+            switch ( m_GuiDraw.GetDrawType() )
+            {
+            case GeomGuiDraw::GEOM_DRAW_WIRE:
+                m_DegenSurfDrawObj_vec[i].m_LineWidth = 1.0;
+                m_DegenSurfDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenSurfDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                draw_obj_vec.push_back( &m_DegenSurfDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_HIDDEN:
+                m_DegenSurfDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenSurfDrawObj_vec[i].m_Type = DrawObj::VSP_HIDDEN_QUADS;
+                draw_obj_vec.push_back( &m_DegenSurfDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_SHADE:
+                m_DegenSurfDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenSurfDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_NONE:
+                m_DegenSurfDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                m_DegenSurfDrawObj_vec[i].m_Visible = false;
+                draw_obj_vec.push_back( &m_DegenSurfDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_TEXTURE:
+                m_DegenSurfDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenSurfDrawObj_vec[i] );
+                break;
+            }
+        }
+    }
+    else if ( m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_DEGEN_PLATE )
+    {
+        for ( int i = 0; i < m_DegenPlateDrawObj_vec.size(); i++ )
+        {
+            m_DegenPlateDrawObj_vec[i].m_GeomID = m_ID + "Degen_Plate_" + std::to_string( i );
+            m_DegenPlateDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
+
+            // Set Render Destination to Main VSP Window.
+            m_DegenPlateDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+
+            Material * material = m_GuiDraw.getMaterial();
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenPlateDrawObj_vec[i].m_MaterialInfo.Ambient[j] = (float)material->m_Ambi[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenPlateDrawObj_vec[i].m_MaterialInfo.Diffuse[j] = (float)material->m_Diff[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenPlateDrawObj_vec[i].m_MaterialInfo.Specular[j] = (float)material->m_Spec[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenPlateDrawObj_vec[i].m_MaterialInfo.Emission[j] = (float)material->m_Emis[j];
+
+            m_DegenPlateDrawObj_vec[i].m_MaterialInfo.Shininess = (float)material->m_Shininess;
+
+            vec3d lineColor = vec3d( m_GuiDraw.GetWireColor().x() / 255.0,
+                                        m_GuiDraw.GetWireColor().y() / 255.0,
+                                        m_GuiDraw.GetWireColor().z() / 255.0 );
+
+            switch ( m_GuiDraw.GetDrawType() )
+            {
+            case GeomGuiDraw::GEOM_DRAW_WIRE:
+                m_DegenPlateDrawObj_vec[i].m_LineWidth = 1.0;
+                m_DegenPlateDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenPlateDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                draw_obj_vec.push_back( &m_DegenPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_HIDDEN:
+                m_DegenPlateDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenPlateDrawObj_vec[i].m_Type = DrawObj::VSP_HIDDEN_QUADS;
+                draw_obj_vec.push_back( &m_DegenPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_SHADE:
+                m_DegenPlateDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_NONE:
+                m_DegenPlateDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                m_DegenPlateDrawObj_vec[i].m_Visible = false;
+                draw_obj_vec.push_back( &m_DegenPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_TEXTURE:
+                m_DegenPlateDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenPlateDrawObj_vec[i] );
+                break;
+            }
+        }
+    }
+    else if ( m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_DEGEN_CAMBER )
+    {
+        for ( int i = 0; i < m_DegenCamberPlateDrawObj_vec.size(); i++ )
+        {
+            m_DegenCamberPlateDrawObj_vec[i].m_GeomID = m_ID + "Degen_Camber_Plate_" + std::to_string( i );
+            m_DegenCamberPlateDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
+
+            // Set Render Destination to Main VSP Window.
+            m_DegenCamberPlateDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+
+            Material * material = m_GuiDraw.getMaterial();
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenCamberPlateDrawObj_vec[i].m_MaterialInfo.Ambient[j] = (float)material->m_Ambi[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenCamberPlateDrawObj_vec[i].m_MaterialInfo.Diffuse[j] = (float)material->m_Diff[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenCamberPlateDrawObj_vec[i].m_MaterialInfo.Specular[j] = (float)material->m_Spec[j];
+
+            for ( int j = 0; j < 4; j++ )
+                m_DegenCamberPlateDrawObj_vec[i].m_MaterialInfo.Emission[j] = (float)material->m_Emis[j];
+
+            m_DegenCamberPlateDrawObj_vec[i].m_MaterialInfo.Shininess = (float)material->m_Shininess;
+
+            vec3d lineColor = vec3d( m_GuiDraw.GetWireColor().x() / 255.0,
+                                        m_GuiDraw.GetWireColor().y() / 255.0,
+                                        m_GuiDraw.GetWireColor().z() / 255.0 );
+
+            switch ( m_GuiDraw.GetDrawType() )
+            {
+            case GeomGuiDraw::GEOM_DRAW_WIRE:
+                m_DegenCamberPlateDrawObj_vec[i].m_LineWidth = 1.0;
+                m_DegenCamberPlateDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenCamberPlateDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                draw_obj_vec.push_back( &m_DegenCamberPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_HIDDEN:
+                m_DegenCamberPlateDrawObj_vec[i].m_LineColor = lineColor;
+                m_DegenCamberPlateDrawObj_vec[i].m_Type = DrawObj::VSP_HIDDEN_QUADS;
+                draw_obj_vec.push_back( &m_DegenCamberPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_SHADE:
+                m_DegenCamberPlateDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenCamberPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_NONE:
+                m_DegenCamberPlateDrawObj_vec[i].m_Type = DrawObj::VSP_WIRE_QUADS;
+                m_DegenCamberPlateDrawObj_vec[i].m_Visible = false;
+                draw_obj_vec.push_back( &m_DegenCamberPlateDrawObj_vec[i] );
+                break;
+
+            case GeomGuiDraw::GEOM_DRAW_TEXTURE:
+                m_DegenCamberPlateDrawObj_vec[i].m_Type = DrawObj::VSP_SHADED_QUADS;
+                draw_obj_vec.push_back( &m_DegenCamberPlateDrawObj_vec[i] );
+                break;
+            }
+        }
+    }
+
+    if ( m_GuiDraw.GetDispSubSurfFlag() && m_GuiDraw.GetDisplayType() != GeomGuiDraw::DISPLAY_BEZIER )
+    {
+        for ( int i = 0; i < m_DegenSubSurfDrawObj_vec.size(); i++ )
+        {
+            m_DegenSubSurfDrawObj_vec[i].m_GeomID = m_ID + "Degen_SubSurf_" + std::to_string( i );
+            m_DegenSubSurfDrawObj_vec[i].m_Visible = !m_GuiDraw.GetNoShowFlag();
+
+            // Set Render Destination to Main VSP Window.
+            m_DegenSubSurfDrawObj_vec[i].m_Screen = DrawObj::VSP_MAIN_SCREEN;
+
+            m_DegenSubSurfDrawObj_vec[i].m_LineWidth = 2.0;
+            m_DegenSubSurfDrawObj_vec[i].m_LineColor = vec3d( 0.0, 0.0, 0.0 );
+
+            m_DegenSubSurfDrawObj_vec[i].m_Type = DrawObj::VSP_LINE_STRIP;
+
+            draw_obj_vec.push_back( &m_DegenSubSurfDrawObj_vec[i] );
         }
     }
 }
@@ -1906,20 +3115,23 @@ void Geom::CreateDegenGeom( vector<DegenGeom> &dgs)
 
     for ( int i = 0 ; i < ( int )m_SurfVec.size() ; i++ )
     {
+        bool urootcap = false;
+
         m_SurfVec[i].ResetUWSkip();
-        if ( m_CapUMinOption() == VspSurf::FLAT_END_CAP && m_CapUMinSuccess[ m_SurfIndxVec[i] ] )
+        if ( m_CapUMinSuccess[ m_SurfIndxVec[i] ] )
         {
             m_SurfVec[i].SetUSkipFirst( true );
+            urootcap = true;
         }
-        if ( m_CapUMaxOption() == VspSurf::FLAT_END_CAP && m_CapUMaxSuccess[ m_SurfIndxVec[i] ] )
+        if ( m_CapUMaxSuccess[ m_SurfIndxVec[i] ] )
         {
             m_SurfVec[i].SetUSkipLast( true );
         }
-        if ( m_CapWMinOption() == VspSurf::FLAT_END_CAP && m_CapWMinSuccess[ m_SurfIndxVec[i] ] )
+        if ( m_CapWMinSuccess[ m_SurfIndxVec[i] ] )
         {
             m_SurfVec[i].SetWSkipFirst( true );
         }
-        if ( m_CapWMaxOption() == VspSurf::FLAT_END_CAP && m_CapWMaxSuccess[ m_SurfIndxVec[i] ] )
+        if ( m_CapWMaxSuccess[ m_SurfIndxVec[i] ] )
         {
             m_SurfVec[i].SetWSkipLast( true );
         }
@@ -1938,12 +3150,12 @@ void Geom::CreateDegenGeom( vector<DegenGeom> &dgs)
 
         degenGeom.createDegenSurface( pnts, uwpnts, m_SurfVec[i].GetFlipNormal() );
 
-        if( m_SurfVec[i].GetSurfType() == vsp::WING_SURF )
+        if( m_SurfVec[i].GetSurfType() == vsp::WING_SURF || m_SurfVec[i].GetSurfType() == vsp::PROP_SURF )
         {
             degenGeom.setType(DegenGeom::SURFACE_TYPE);
 
             degenGeom.createSurfDegenPlate( pnts, uwpnts );
-            degenGeom.createSurfDegenStick( pnts, uwpnts );
+            degenGeom.createSurfDegenStick( pnts, uwpnts, m_SurfVec[i].GetFoilSurf(), urootcap );
         }
         else if( m_SurfVec[i].GetSurfType() == vsp::DISK_SURF )
         {
@@ -1959,15 +3171,95 @@ void Geom::CreateDegenGeom( vector<DegenGeom> &dgs)
             degenGeom.createBodyDegenStick( pnts, uwpnts );
         }
 
+        // degenerate subsurfaces
         for ( int j = 0; j < m_SubSurfVec.size(); j++ )
         {
             if ( m_SurfIndxVec[i] == m_SubSurfVec[j]->m_MainSurfIndx() )
             {
-                degenGeom.addDegenSubSurf( m_SubSurfVec[j] );
+                degenGeom.addDegenSubSurf( m_SubSurfVec[j], i );    //TODO is there a way to eliminate having to send in the surf index "i"
+
+                SSControlSurf *csurf = dynamic_cast < SSControlSurf* > ( m_SubSurfVec[j] );
+                if ( csurf )
+                {
+                    degenGeom.addDegenHingeLine( csurf );
+                }
             }
         }
 
         dgs.push_back(degenGeom);
+    }
+}
+
+//==== Create Degenerate Geometry Preview ====//
+void Geom::CreateDegenGeomPreview( vector<DegenGeom> &dgs )
+{
+    // This function is similar to CreateDegenGeom, but has been simplified to generate only the
+    // required degen plate,surface, and subsurface for updating the preview DrawObj vectors
+
+    vector< vector< vec3d > > pnts;
+    vector< vector< vec3d > > nrms;
+    vector< vector< vec3d > > uwpnts;
+
+    for ( int i = 0; i < (int)m_SurfVec.size(); i++ )
+    {
+        m_SurfVec[i].ResetUWSkip();
+        if ( m_CapUMinSuccess[m_SurfIndxVec[i]] )
+        {
+            m_SurfVec[i].SetUSkipFirst( true );
+        }
+        if ( m_CapUMaxSuccess[m_SurfIndxVec[i]] )
+        {
+            m_SurfVec[i].SetUSkipLast( true );
+        }
+        if ( m_CapWMinSuccess[m_SurfIndxVec[i]] )
+        {
+            m_SurfVec[i].SetWSkipFirst( true );
+        }
+        if ( m_CapWMaxSuccess[m_SurfIndxVec[i]] )
+        {
+            m_SurfVec[i].SetWSkipLast( true );
+        }
+
+        //==== Tesselate Surface ====//
+        UpdateTesselate( i, pnts, nrms, uwpnts, true );
+        m_SurfVec[i].ResetUWSkip();
+
+        DegenGeom degenGeom;
+        degenGeom.setParentGeom( this );
+        degenGeom.setSurfNum( i );
+
+        degenGeom.setNumXSecs( pnts.size() );
+        degenGeom.setNumPnts( pnts[0].size() );
+        degenGeom.setName( GetName() );
+
+        degenGeom.createDegenSurface( pnts, uwpnts, m_SurfVec[i].GetFlipNormal() );
+
+        if ( m_SurfVec[i].GetSurfType() == vsp::WING_SURF )
+        {
+            degenGeom.setType( DegenGeom::SURFACE_TYPE );
+
+            degenGeom.createSurfDegenPlate( pnts, uwpnts );
+        }
+        else if ( m_SurfVec[i].GetSurfType() == vsp::DISK_SURF )
+        {
+            degenGeom.setType( DegenGeom::DISK_TYPE );
+        }
+        else
+        {
+            degenGeom.setType( DegenGeom::BODY_TYPE );
+
+            degenGeom.createBodyDegenPlate( pnts, uwpnts );
+        }
+
+        for ( int j = 0; j < m_SubSurfVec.size(); j++ )
+        {
+            if ( m_SurfIndxVec[i] == m_SubSurfVec[j]->m_MainSurfIndx() )
+            {
+                degenGeom.addDegenSubSurf( m_SubSurfVec[j], i );
+            }
+        }
+
+        dgs.push_back( degenGeom );
     }
 }
 
@@ -2051,6 +3343,28 @@ vec3d Geom::GetUWPt( const int &indx, const double &u, const double &w )
     return GetSurfPtr( indx )->CompPnt01( u, w );
 }
 
+bool Geom::CompRotCoordSys( const double &u, const double &w, Matrix4d &rotMat )
+{
+    VspSurf* surf_ptr = GetSurfPtr();
+    if ( surf_ptr )
+    {
+        rotMat = surf_ptr->CompRotCoordSys( u, w );
+        return true;
+    }
+    return false;
+}
+
+bool Geom::CompTransCoordSys( const double &u, const double &w, Matrix4d &transMat )
+{
+    VspSurf* surf_ptr = GetSurfPtr();
+    if ( surf_ptr )
+    {
+        transMat = surf_ptr->CompTransCoordSys( u, w );
+        return true;
+    }
+    return false;
+}
+
 void Geom::WriteXSecFile( int geom_no, FILE* dump_file )
 {
     for ( int i = 0 ; i < ( int )m_SurfVec.size() ; i++ )
@@ -2118,7 +3432,12 @@ void Geom::WritePLOT3DFileXYZ( FILE* dump_file )
         {
             for ( int k = 0 ; k < ( int )pnts[j].size() ; k++ )
             {
-                fprintf( dump_file, "%25.17e ", pnts[j][k].x() );
+                int kflip = k;
+                if ( !m_SurfVec[i].GetFlipNormal() )
+                {
+                    kflip = pnts[j].size() - 1 - k;
+                }
+                fprintf( dump_file, "%25.17e ", pnts[j][kflip].x() );
             }
         }
         fprintf( dump_file, "\n" );
@@ -2126,7 +3445,12 @@ void Geom::WritePLOT3DFileXYZ( FILE* dump_file )
         {
             for ( int k = 0 ; k < ( int )pnts[j].size() ; k++ )
             {
-                fprintf( dump_file, "%25.17e ", pnts[j][k].y() );
+                int kflip = k;
+                if ( !m_SurfVec[i].GetFlipNormal() )
+                {
+                    kflip = pnts[j].size() - 1 - k;
+                }
+                fprintf( dump_file, "%25.17e ", pnts[j][kflip].y() );
             }
         }
         fprintf( dump_file, "\n" );
@@ -2134,7 +3458,12 @@ void Geom::WritePLOT3DFileXYZ( FILE* dump_file )
         {
             for ( int k = 0 ; k < ( int )pnts[j].size() ; k++ )
             {
-                fprintf( dump_file, "%25.17e ", pnts[j][k].z() );
+                int kflip = k;
+                if ( !m_SurfVec[i].GetFlipNormal() )
+                {
+                    kflip = pnts[j].size() - 1 - k;
+                }
+                fprintf( dump_file, "%25.17e ", pnts[j][kflip].z() );
             }
         }
         fprintf( dump_file, "\n" );
@@ -2143,8 +3472,8 @@ void Geom::WritePLOT3DFileXYZ( FILE* dump_file )
 
 void Geom::CreateGeomResults( Results* res )
 {
-    res->Add( ResData( "Type", vsp::GEOM_XSECS ) );
-    res->Add( ResData( "Num_Surfs", ( int )m_SurfVec.size() ) );
+    res->Add( NameValData( "Type", vsp::GEOM_XSECS ) );
+    res->Add( NameValData( "Num_Surfs", ( int )m_SurfVec.size() ) );
 
     for ( int i = 0 ; i < ( int )m_SurfVec.size() ; i++ )
     {
@@ -2153,11 +3482,11 @@ void Geom::CreateGeomResults( Results* res )
         vector< vector< vec3d > > norms;
         UpdateTesselate( i, pnts, norms, false );
 
-        res->Add( ResData( "Num_XSecs", static_cast<int>( pnts.size() ) ) );
+        res->Add( NameValData( "Num_XSecs", static_cast<int>( pnts.size() ) ) );
 
         if ( pnts.size() )
         {
-            res->Add( ResData( "Num_Pnts_Per_XSec", static_cast<int>( pnts[0].size() ) ) );
+            res->Add( NameValData( "Num_Pnts_Per_XSec", static_cast<int>( pnts[0].size() ) ) );
         }
 
         //==== Write XSec Data ====//
@@ -2168,7 +3497,7 @@ void Geom::CreateGeomResults( Results* res )
             {
                 xsec_vec.push_back(  pnts[j][k] );
             }
-            res->Add( ResData( "XSec_Pnts", xsec_vec ) );
+            res->Add( NameValData( "XSec_Pnts", xsec_vec ) );
         }
     }
 }
@@ -2328,101 +3657,105 @@ vector< TMesh* > Geom::CreateTMeshVec()
 
     for ( int i = 0 ; i < ( int )m_SurfVec.size() ; i++ )
     {
-        UpdateTesselate( i, pnts, norms, uw_pnts, false );
-        m_SurfVec[i].ResetUWSkip(); // Done with skip flags.
-
-        TMeshVec.push_back( new TMesh() );
-        TMeshVec[i]->LoadGeomAttributes( this );
-        TMeshVec[i]->m_SurfNum = i;
-        TMeshVec[i]->m_UWPnts = uw_pnts;
-        TMeshVec[i]->m_XYZPnts = pnts;
-        bool f_norm = m_SurfVec[i].GetFlipNormal();
-
-        vec3d norm;
-        vec3d v0, v1, v2, v3;
-        vec3d uw0, uw1, uw2, uw3;
-        vec3d d21, d01, d03, d23, d20, d31;
-
-        for ( int j = 0 ; j < ( int )pnts.size() - 1 ; j++ )
+        if ( m_SurfVec[i].GetNumSectU() != 0 && m_SurfVec[i].GetNumSectW() != 0 )
         {
-            for ( int k = 0 ; k < ( int )pnts[0].size() - 1 ; k++ )
+            UpdateTesselate( i, pnts, norms, uw_pnts, false );
+            m_SurfVec[i].ResetUWSkip(); // Done with skip flags.
+
+            TMeshVec.push_back( new TMesh() );
+            int itmesh = TMeshVec.size() - 1;
+            TMeshVec[itmesh]->LoadGeomAttributes( this );
+            TMeshVec[itmesh]->m_SurfNum = i;
+            TMeshVec[itmesh]->m_UWPnts = uw_pnts;
+            TMeshVec[itmesh]->m_XYZPnts = pnts;
+            bool f_norm = m_SurfVec[i].GetFlipNormal();
+
+            vec3d norm;
+            vec3d v0, v1, v2, v3;
+            vec3d uw0, uw1, uw2, uw3;
+            vec3d d21, d01, d03, d23, d20, d31;
+
+            for ( int j = 0 ; j < ( int )pnts.size() - 1 ; j++ )
             {
-                v0 = pnts[j][k];
-                v1 = pnts[j + 1][k];
-                v2 = pnts[j + 1][k + 1];
-                v3 = pnts[j][k + 1];
-
-                uw0 = uw_pnts[j][k];
-                uw1 = uw_pnts[j + 1][k];
-                uw2 = uw_pnts[j + 1][k + 1];
-                uw3 = uw_pnts[j][k + 1];
-
-                double quadrant = ( uw0.y() + uw1.y() + uw2.y() + uw3.y() ) / m_SurfVec[i].GetWMax(); // * 4 * 0.25 canceled.
-
-                d21 = v2 - v1;
-                d01 = v0 - v1;
-                d03 = v0 - v3;
-                d23 = v2 - v3;
-
-                if ( ( quadrant > 0 && quadrant < 1 ) || ( quadrant > 2 && quadrant < 3 ) )
+                for ( int k = 0 ; k < ( int )pnts[0].size() - 1 ; k++ )
                 {
-                    d20 = v2 - v0;
-                    if ( d21.mag() > tol && d01.mag() > tol && d20.mag() > tol )
-                    {
-                        norm = cross( d21, d01 );
-                        norm.normalize();
-                        if ( f_norm )
-                        {
-                            TMeshVec[i]->AddTri( v0, v2, v1, norm * -1, uw0, uw2, uw1 );
-                        }
-                        else
-                        {
-                            TMeshVec[i]->AddTri( v0, v1, v2, norm, uw0, uw1, uw2 );
-                        }
-                    }
+                    v0 = pnts[j][k];
+                    v1 = pnts[j + 1][k];
+                    v2 = pnts[j + 1][k + 1];
+                    v3 = pnts[j][k + 1];
 
-                    if ( d03.mag() > tol && d23.mag() > tol && d20.mag() > tol )
-                    {
-                        norm = cross( d03, d23 );
-                        norm.normalize();
-                        if ( f_norm )
-                        {
-                            TMeshVec[i]->AddTri( v0, v3, v2, norm * -1, uw0, uw3, uw2 );
-                        }
-                        else
-                        {
-                            TMeshVec[i]->AddTri( v0, v2, v3, norm, uw0, uw2, uw3 );
-                        }
-                    }
-                }
-                else
-                {
-                    d31 = v3 - v1;
-                    if ( d01.mag() > tol && d31.mag() > tol && d03.mag() > tol )
-                    {
-                        norm = cross( d01, d03 );
-                        norm.normalize();
-                        if ( f_norm )
-                        {
-                            TMeshVec[i]->AddTri( v0, v3, v1, norm * -1, uw0, uw3, uw1 );
-                        }
-                        else
-                        {
-                            TMeshVec[i]->AddTri( v0, v1, v3, norm, uw0, uw1, uw3 );
-                        }
-                    }
+                    uw0 = uw_pnts[j][k];
+                    uw1 = uw_pnts[j + 1][k];
+                    uw2 = uw_pnts[j + 1][k + 1];
+                    uw3 = uw_pnts[j][k + 1];
 
-                    if ( d21.mag() > tol && d23.mag() > tol && d31.mag() > tol )
+                    double quadrant = ( uw0.y() + uw1.y() + uw2.y() + uw3.y() ) / m_SurfVec[i].GetWMax(); // * 4 * 0.25 canceled.
+
+                    d21 = v2 - v1;
+                    d01 = v0 - v1;
+                    d03 = v0 - v3;
+                    d23 = v2 - v3;
+
+                    if ( ( quadrant > 0 && quadrant < 1 ) || ( quadrant > 2 && quadrant < 3 ) )
                     {
-                        norm = cross( d23, d21 );
-                        norm.normalize();
-                        if ( f_norm )
+                        d20 = v2 - v0;
+                        if ( d21.mag() > tol && d01.mag() > tol && d20.mag() > tol )
                         {
-                            TMeshVec[i]->AddTri( v1, v3, v2, norm * -1, uw1, uw3, uw2 );
+                            norm = cross( d21, d01 );
+                            norm.normalize();
+                            if ( f_norm )
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v2, v1, norm * -1, uw0, uw2, uw1 );
+                            }
+                            else
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v1, v2, norm, uw0, uw1, uw2 );
+                            }
                         }
-                        else
+
+                        if ( d03.mag() > tol && d23.mag() > tol && d20.mag() > tol )
                         {
-                            TMeshVec[i]->AddTri( v1, v2, v3, norm, uw1, uw2, uw3 );
+                            norm = cross( d03, d23 );
+                            norm.normalize();
+                            if ( f_norm )
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v3, v2, norm * -1, uw0, uw3, uw2 );
+                            }
+                            else
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v2, v3, norm, uw0, uw2, uw3 );
+                            }
+                        }
+                    }
+                    else
+                    {
+                        d31 = v3 - v1;
+                        if ( d01.mag() > tol && d31.mag() > tol && d03.mag() > tol )
+                        {
+                            norm = cross( d01, d03 );
+                            norm.normalize();
+                            if ( f_norm )
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v3, v1, norm * -1, uw0, uw3, uw1 );
+                            }
+                            else
+                            {
+                                TMeshVec[itmesh]->AddTri( v0, v1, v3, norm, uw0, uw1, uw3 );
+                            }
+                        }
+
+                        if ( d21.mag() > tol && d23.mag() > tol && d31.mag() > tol )
+                        {
+                            norm = cross( d23, d21 );
+                            norm.normalize();
+                            if ( f_norm )
+                            {
+                                TMeshVec[itmesh]->AddTri( v1, v3, v2, norm * -1, uw1, uw3, uw2 );
+                            }
+                            else
+                            {
+                                TMeshVec[itmesh]->AddTri( v1, v2, v3, norm, uw1, uw2, uw3 );
+                            }
                         }
                     }
                 }
@@ -2481,6 +3814,11 @@ SubSurface* Geom::AddSubSurf( int type, int surfindex )
 {
     SubSurface* ssurf = NULL;
 
+    if ( m_MainSurfVec.size() <= 0 )
+    {
+        return ssurf;
+    }
+
     if ( type == vsp::SS_LINE )
     {
         ssurf = new SSLine( m_ID );
@@ -2534,6 +3872,19 @@ SubSurface* Geom::GetSubSurf( const string & id )
         }
     }
     return NULL;
+}
+
+int Geom::GetSubSurfIndex( const string & id )
+{
+    for ( int i = 0; i < (int)m_SubSurfVec.size(); i++ )
+    {
+        if ( m_SubSurfVec[i]->GetID() == id )
+        {
+            if ( ValidSubSurfInd( i ) )
+                return i;
+        }
+    }
+    return -1;
 }
 
 //==== Highlight Active Subsurface ====//
@@ -2730,7 +4081,7 @@ void GeomXSec::UpdateDrawObj()
         XSec* xs = m_XSecSurf.FindXSec( i );
         if ( xs )
         {
-            m_XSecDrawObj_vec[i].m_PntVec = xs->GetDrawLines( m_TessW(), relTrans );
+            m_XSecDrawObj_vec[i].m_PntVec = xs->GetDrawLines( relTrans );
         }
         else
         {
@@ -2742,7 +4093,7 @@ void GeomXSec::UpdateDrawObj()
     XSec* axs = m_XSecSurf.FindXSec( m_ActiveXSec );
     if ( axs )
     {
-        m_HighlightXSecDrawObj.m_PntVec = axs->GetDrawLines( m_TessW(), relTrans );
+        m_HighlightXSecDrawObj.m_PntVec = axs->GetDrawLines( relTrans );
 
         double w = axs->GetXSecCurve()->GetWidth();
         double h = axs->GetXSecCurve()->GetHeight();
@@ -2790,7 +4141,7 @@ void GeomXSec::LoadDrawObjs( vector< DrawObj* > & draw_obj_vec )
     Geom::LoadDrawObjs( draw_obj_vec );
 
 
-    if ( m_Vehicle->IsGeomActive( m_ID ) )
+    if ( m_Vehicle->IsGeomActive( m_ID ) && m_GuiDraw.GetDisplayType() == GeomGuiDraw::DISPLAY_BEZIER )
     {
         char str[256];
 
@@ -2889,6 +4240,23 @@ void GeomXSec::AddDefaultSourcesXSec( double base_len, double len_ref, int ixsec
                     lsource->m_WLoc2 = w1;
                     AddCfdMeshSource( lsource );
                 }
+            }
+        }
+    }
+}
+
+void GeomXSec::OffsetXSecs( double off )
+{
+    int nxsec = m_XSecSurf.NumXSec();
+    for ( int i = 0 ; i < nxsec ; i++ )
+    {
+        XSec* xs = m_XSecSurf.FindXSec( i );
+        if ( xs )
+        {
+            XSecCurve* xsc = xs->GetXSecCurve();
+            if ( xsc )
+            {
+                xsc->OffsetCurve( off );
             }
         }
     }

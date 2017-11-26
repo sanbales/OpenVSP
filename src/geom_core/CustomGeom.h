@@ -55,7 +55,7 @@ public:
     void Init()                                         {}
 
     //==== Init Geom ====//
-    void InitGeom( const string& id, const string& module_name );
+    void InitGeom( const string& id, const string& module_name, const string& display_name );
     void SetCurrCustomGeom( const string& id )            { m_CurrGeom = id; }
     string GetCurrCustomGeom()                            { return m_CurrGeom; }
 
@@ -149,8 +149,6 @@ public:
     virtual vec3d GetLoc()                                  { return m_Loc; }
     virtual void SetRot( const vec3d & rot );
     virtual vec3d GetRot()                                  { return m_Rot; }
-    virtual void SetCenterRot( const vec3d & cent );
-    virtual vec3d GetCenterRot()                            { return m_CenterRot; }
 
     virtual double GetScale();
 
@@ -158,7 +156,6 @@ protected:
 
     vec3d m_Loc;
     vec3d m_Rot;
-    vec3d m_CenterRot;
 
 };
 
@@ -179,6 +176,8 @@ public:
     void InitGeom( );
     void SetScriptModuleName( const string& name )      { m_ScriptModuleName = name; }
     string GetScriptModuleName()                        { return m_ScriptModuleName; }
+    void SetDisplayName( const string& name )      { m_DisplayName = name; }
+    string GetDisplayName()                        { return m_DisplayName; }
 
     //==== Add a Parm Return ID ====//
     string AddParm( int type, const string & name, const string & group );
@@ -222,10 +221,14 @@ public:
     virtual void ComputeCenter();
     virtual void Scale();
 
+    //==== Offset XSecs For Conformal =====//
+    virtual void OffsetXSecs( double off );
+
 protected:
 
     bool m_InitGeomFlag;
     string m_ScriptModuleName;
+    string m_DisplayName;
 
     vector< Parm* > m_ParmVec;              // Storage For Pointers
     vector< GuiDef > m_GuiDefVec;           // Gui Definition
@@ -245,6 +248,9 @@ protected:
     // Needed for transparent custom geoms
     virtual void UpdateFlags();
 
+    bool m_ConformalFlag;
+    double m_ConformalOffset;
+    virtual void ApplyConformalOffset( double off );
 };
 
 

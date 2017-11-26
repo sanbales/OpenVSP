@@ -34,7 +34,7 @@ using namespace std;
 class CfdMeshSettings : public ParmContainer
 {
 public:
-	CfdMeshSettings();
+    CfdMeshSettings();
     virtual ~CfdMeshSettings();
 
     virtual xmlNodePtr EncodeXml( xmlNodePtr & node );
@@ -82,10 +82,6 @@ public:
     {
         return m_SymSplittingOnFlag.Get();
     }
-    virtual void SetSymSplittingOnFlag(bool isOn)
-    {
-        m_SymSplittingOnFlag.Set(isOn);
-    }
 
     virtual bool GetFarAbsSizeFlag()
     {
@@ -103,25 +99,13 @@ public:
     {
         m_HalfMeshFlag = f;
     }
-    virtual void SetWakeScale( double s )
-    {
-        m_WakeScale = s;
-    }
     virtual double GetWakeScale()
     {
         return m_WakeScale();
     }
-    virtual void SetWakeAngle( double a )
-    {
-        m_WakeAngle = a;
-    }
     virtual double GetWakeAngle()
     {
         return m_WakeAngle();
-    }
-    virtual void SetIntersectSubSurfs( bool f )
-    {
-        m_IntersectSubSurfs = f;
     }
     virtual bool GetIntersectSubSurfs()
     {
@@ -177,6 +161,7 @@ public:
     IntParm m_SelectedSetIndex;
 
     BoolParm m_ExportFileFlags[vsp::CFD_NUM_FILE_NAMES];
+    BoolParm m_XYZIntCurveFlag;
 
 protected:
 

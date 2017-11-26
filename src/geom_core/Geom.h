@@ -37,11 +37,19 @@
 
 class XSecSurf;
 
-//#define stringify( name ) # name
-
+// Type matching predominately performed by name matching -- use unique type names when
+// adding new Geom types.  However, custom geoms each get a new type name and must be
+// identified by matching ( type.m_Type == CUSTOM_GEOM_TYPE ).  Furthermore, this number
+// must not change in the future -- i.e. CUSTOM_GEOM_TYPE must always == 9.  Otherwise,
+// future users will not be able to open past files with custom geoms.
+//
+// In general, add any new XXX_GEOM_TYPE to this list before NUM_GEOM_TYPE and everything
+// will be OK.  (Don't alphabetize or re-order this list).
+//
 enum { BASE_GEOM_TYPE, XFORM_GEOM_TYPE, GEOM_GEOM_TYPE, POD_GEOM_TYPE, FUSELAGE_GEOM_TYPE,
        MS_WING_GEOM_TYPE, BLANK_GEOM_TYPE, MESH_GEOM_TYPE, STACK_GEOM_TYPE, CUSTOM_GEOM_TYPE,
-       PT_CLOUD_GEOM_TYPE, NUM_GEOM_TYPE,
+       PT_CLOUD_GEOM_TYPE, PROP_GEOM_TYPE, HINGE_GEOM_TYPE, CONFORMAL_GEOM_TYPE,
+       ELLIPSOID_GEOM_TYPE, BOR_GEOM_TYPE, NUM_GEOM_TYPE
      };
 
 class GeomType
@@ -49,7 +57,7 @@ class GeomType
 public:
 
     GeomType();
-    GeomType( int id, string name, bool fixed_flag = false, string module_name = string()  );
+    GeomType( int id, string name, bool fixed_flag = false, string module_name = string(), string display_type = string() );
     ~GeomType();
 
     void CopyFrom( const GeomType & t );
@@ -60,6 +68,7 @@ public:
 
     string m_GeomID;
     string m_ModuleName;
+    string m_DisplayName;
 
 };
 
@@ -72,7 +81,18 @@ public:
     GeomGuiDraw();
     virtual ~GeomGuiDraw();
 
+    enum { DISPLAY_BEZIER, DISPLAY_DEGEN_SURF, DISPLAY_DEGEN_PLATE, DISPLAY_DEGEN_CAMBER };
+
     enum { GEOM_DRAW_WIRE, GEOM_DRAW_HIDDEN, GEOM_DRAW_SHADE, GEOM_DRAW_TEXTURE, GEOM_DRAW_NONE };
+
+    void SetDisplayType( int t )
+    {
+        m_DisplayType = t;
+    }
+    int GetDisplayType()
+    {
+        return m_DisplayType;
+    }
 
     void SetDrawType( int t )
     {
@@ -106,14 +126,6 @@ public:
     void SetMaterialToDefault();
     void SetMaterial( std::string name, double ambi[], double diff[], double spec[], double emis[], double shin );
     void SetMaterial( const std::string &name );
-    void SetMaterialID( int m )
-    {
-        m_MaterialID = m;
-    }
-    virtual int getMaterialID()
-    {
-        return m_MaterialID;
-    }
 
     void SetDisplayChildrenFlag( bool f )
     {
@@ -157,14 +169,13 @@ public:
     }
 protected:
 
+    int m_DisplayType; // Either Bezier Surface, Degen Surface, Degen Plate, or Degen Cambered Plate
     int  m_DrawType;
 
     bool m_NoShowFlag;
     bool m_DisplayChildrenFlag;
     bool m_DispSubSurfFlag;
     bool m_DispFeatureFlag;
-
-    int m_MaterialID;
 
     TextureMgr m_TextureMgr;
     ColorMgr m_ColorMgr;
@@ -188,12 +199,12 @@ public:
     }
 
     virtual void Update( bool fullupdate = true )           {}
-    virtual void UpdateXForm()                              {}
 
     virtual void ParmChanged( Parm* parm_ptr, int type );
     virtual void ForceUpdate();
 
     virtual int CountParents( int count );
+    virtual bool IsParentJoint();
 
     virtual void SetParentID( string id )
     {
@@ -220,8 +231,6 @@ public:
     }
 
     virtual bool UpdatedParm( const string & id );
-
-    virtual void LoadDrawObjs( vector< DrawObj* > & draw_obj_vec )      {}
 
     virtual void LoadIDAndChildren( vector< string > & id_vec, bool check_display_flag = false );
 
@@ -252,7 +261,6 @@ public:
     virtual ~GeomXForm();
 
     virtual void Update( bool fullupdate = true );
-    virtual void UpdateXForm();
     virtual void ComposeModelMatrix();
     virtual Matrix4d ComposeAttachMatrix();
     virtual void SetCenter( double x, double y, double z )      { m_Center.set_xyz( x, y, z ); }
@@ -267,6 +275,7 @@ public:
         m_Scale = 1;
     }
 
+    // TODO: Move these to APIDefines.h and register in ScriptMgr.cpp
     enum { ATTACH_TRANS_NONE = 0, ATTACH_TRANS_COMP, ATTACH_TRANS_UV, };
     enum { ATTACH_ROT_NONE = 0, ATTACH_ROT_COMP, ATTACH_ROT_UV, }; // Attachment Flags
     enum { ABSOLUTE_XFORM = 0, RELATIVE_XFORM, };
@@ -315,10 +324,12 @@ public:
 
     Parm m_ULoc;                        // UV Attachment Parameters
     Parm m_WLoc;
-    BoolParm m_relFlag;                 // Bool Parm to determine relative or absolute transformations
 
     Parm m_Scale;                       // Scaling Parameter
     Parm m_LastScale;
+
+    vec3d m_AttachOrigin;
+    vector < vec3d > m_AttachAxis;
 
 protected:
 
@@ -364,6 +375,7 @@ public:
     {
         return m_MainSurfVec.size();
     }
+    virtual void GetMainSurfVec( vector<VspSurf> &surf_vec )    { surf_vec = m_MainSurfVec; }
     virtual int GetNumSymFlags();
     virtual int GetNumTotalSurfs();
     virtual int GetNumSymmCopies();
@@ -375,7 +387,14 @@ public:
 
     virtual int GetMainSurfID( int surfnum )
     {
-        return m_SurfIndxVec[ surfnum ];
+        if ( surfnum >= 0 && surfnum < m_SurfIndxVec.size() )
+        {
+            return m_SurfIndxVec[ surfnum ];
+        }
+        else
+        {
+            return -1;
+        }
     }
 
     /*
@@ -385,6 +404,9 @@ public:
 
     virtual vec3d GetUWPt( const double &u, const double &w );
     virtual vec3d GetUWPt( const int &indx, const double &u, const double &w );
+
+    virtual bool CompRotCoordSys( const double &u, const double &w, Matrix4d &rotmat );
+    virtual bool CompTransCoordSys( const double &u, const double &w, Matrix4d &transmat );
 
     //==== XSec Surfs ====//
     virtual int GetNumXSecSurfs()
@@ -437,6 +459,7 @@ public:
     virtual void DelSubSurf( int ind );
     virtual SubSurface* GetSubSurf( int ind );
     virtual SubSurface* GetSubSurf( const string & id );
+    virtual int GetSubSurfIndex( const string & id );
     virtual vector< SubSurface* > GetSubSurfVec()
     {
         return m_SubSurfVec;
@@ -453,6 +476,7 @@ public:
 
     //===== Degenerate Geometry =====//
     virtual void CreateDegenGeom( vector<DegenGeom> &dgs);
+    virtual void CreateDegenGeomPreview( vector<DegenGeom> &dgs );
 
     IntParm m_TessU;
     LimIntParm m_TessW;
@@ -485,6 +509,29 @@ public:
 //Material
 //Display Flags
 //OtherData
+
+    virtual void SetGeomProjectVec3d( vector < vector < vec3d > > polyvec, int dir_index )
+    {
+        m_GeomProjectVec3d[dir_index] = polyvec;
+    }
+    virtual vector < vector < vec3d > > GetGeomProjectVec3d( int dir_index )
+    {
+        return m_GeomProjectVec3d[dir_index];
+    }
+    virtual void ClearGeomProjectVec3d()
+    {
+        m_GeomProjectVec3d.clear();
+        m_GeomProjectVec3d.resize( 3 );
+    }
+
+    virtual void SetForceXSecFlag( bool flag )
+    {
+        m_ForceXSecFlag = flag;
+    }
+    virtual bool GetForceXSecFlag( )
+    {
+        return m_ForceXSecFlag;
+    }
 
 //  //==== Structures ====//
 //  void SetCurrPartID( int pid )           { currPartID = pid; }
@@ -527,49 +574,8 @@ public:
     {
         m_WakeActiveFlag.Set( flag );
     }
-    virtual bool GetWakeActiveFlag()
-    {
-        return m_WakeActiveFlag();
-    }
     virtual void AppendWakeEdges( vector< vector< vec3d > > & edges );
     virtual bool HasWingTypeSurfs();
-
-    //==== Override end capping ====//
-    bool CapUMin() const
-    {
-      return m_CapUMin;
-    }
-    void CapUMin( bool cp )
-    {
-      m_CapUMin = cp;
-    }
-
-    bool CapUMax() const
-    {
-      return m_CapWMax;
-    }
-    void CapUMax( bool cp )
-    {
-      m_CapWMax = cp;
-    }
-
-    bool CapWMin() const
-    {
-      return m_CapWMin;
-    }
-    void CapWMin( bool cp )
-    {
-      m_CapWMin = cp;
-    }
-
-    bool CapWMax() const
-    {
-      return m_CapWMax;
-    }
-    void CapWMax( bool cp )
-    {
-      m_CapWMax = cp;
-    }
 
     //=== End Cap Parms ===//
     IntParm m_CapUMinOption;
@@ -578,8 +584,31 @@ public:
     IntParm m_CapWMinOption;
     IntParm m_CapWMaxOption;
 
+    Parm m_CapUMinLength;
+    Parm m_CapUMinOffset;
+    Parm m_CapUMinStrength;
+    BoolParm m_CapUMinSweepFlag;
+
+    Parm m_CapUMaxLength;
+    Parm m_CapUMaxOffset;
+    Parm m_CapUMaxStrength;
+    BoolParm m_CapUMaxSweepFlag;
+    bool m_CappingDone;
+
     //==== Wake for CFD Mesh ====//
     BoolParm m_WakeActiveFlag;
+
+    //==== Parasite Drag Parms ====//
+    IntParm m_FFBodyEqnType;
+    IntParm m_FFWingEqnType;
+    Parm m_PercLam;
+    Parm m_FFUser;
+    Parm m_Q;
+    Parm m_Roughness;
+    Parm m_TeTwRatio;
+    Parm m_TawTwRatio;
+    IntParm m_GroupedAncestorGen;
+    BoolParm m_ExpandedListFlag;
 
     //==== Basic Geom XSec Functions - Override ====//
     virtual void CutXSec( int index )               {}
@@ -587,6 +616,15 @@ public:
     virtual void PasteXSec( int index )             {}
     virtual void InsertXSec( int index, int type )  {}
 
+    void WriteFeatureLinesDXF( FILE * file_name, const BndBox &dxfbox );
+    void WriteProjectionLinesDXF( FILE * file_name, const BndBox &dxfbox );
+    vector < vector< vec3d > > GetGeomProjectionLines( int view, vec3d offset );
+    void WriteFeatureLinesSVG( xmlNodePtr root, const BndBox &dxfbox );
+    void WriteProjectionLinesSVG( xmlNodePtr root, const BndBox &dxfbox );
+
+    virtual void OffsetXSecs( double off )          {}
+
+    virtual void UpdateDegenDrawObj();
 
 protected:
 
@@ -615,12 +653,20 @@ protected:
     vector<DrawObj> m_WireShadeDrawObj_vec;
     vector<DrawObj> m_FeatureDrawObj_vec;
     DrawObj m_HighlightDrawObj;
+    vector<DrawObj> m_AxisDrawObj_vec;
+    vector<DrawObj> m_DegenPlateDrawObj_vec;
+    vector<DrawObj> m_DegenSurfDrawObj_vec;
+    vector<DrawObj> m_DegenCamberPlateDrawObj_vec;
+    vector<DrawObj> m_DegenSubSurfDrawObj_vec;
 
     BndBox m_BBox;
 
     vector< bool > m_SetFlags;
 
     vector<SubSurface*> m_SubSurfVec;
+
+    vector < vector < vector < vec3d > > > m_GeomProjectVec3d; // Vector of projection lines for each view direction (x, y, or z)
+    bool m_ForceXSecFlag; // Flag to force feature lines at xsecs
 
 //  //==== Structure Parts ====//
 //  int currPartID;
@@ -630,12 +676,6 @@ protected:
     int currSourceID;
     vector< BaseSource* > m_MainSourceVec;
     vector< BaseSimpleSource* > m_SimpSourceVec;
-
-    //==== Manual override of caps ====//
-    bool m_CapUMin;
-    bool m_CapUMax;
-    bool m_CapWMin;
-    bool m_CapWMax;
 
     vector< bool > m_CapUMinSuccess;
     vector< bool > m_CapUMaxSuccess;
@@ -677,6 +717,8 @@ public:
 
     virtual XSec* GetXSec( int index );
     virtual void AddDefaultSourcesXSec( double base_len, double len_ref, int ixsec );
+
+    virtual void OffsetXSecs( double off );
 
 protected:
     virtual void UpdateDrawObj();

@@ -28,6 +28,7 @@
 #include "eli/geom/surface/piecewise.hpp"
 #include "eli/geom/curve/piecewise_creator.hpp"
 #include "eli/geom/surface/piecewise_general_skinning_surface_creator.hpp"
+#include "eli/geom/surface/piecewise_cubic_spline_skinning_surface_creator.hpp"
 
 typedef eli::geom::surface::bezier<double, 3> surface_patch_type;
 typedef eli::geom::surface::piecewise<eli::geom::surface::bezier, double, 3> piecewise_surface_type;
@@ -40,24 +41,26 @@ typedef eli::geom::surface::connection_data<double, 3, surface_tolerance_type> r
 #include <string>
 using std::vector;
 
+void SplitSurfsU( vector< piecewise_surface_type > &surfvec, const vector < double > &USplit );
+void SplitSurfsW( vector< piecewise_surface_type > &surfvec, const vector < double > &WSplit );
+
 class VspSurf
 {
 public:
-
-
-    enum { NO_END_CAP,
-           FLAT_END_CAP,
-           NUM_END_CAP_OPTIONS
-         };
-
     VspSurf();
     virtual ~VspSurf();
 
     // create surface as a body of revolution using the specified curve
-    void CreateBodyRevolution( const VspCurve &input_crv );
+    void CreateBodyRevolution( const VspCurve &input_crv, bool match_uparm = false );
 
+    void SkinRibs( const vector<rib_data_type> &ribs, const vector < int > &degree, const vector < double > & param, bool closed_flag );
+    void SkinRibs( const vector<rib_data_type> &ribs, const vector < double > & param, bool closed_flag );
     void SkinRibs( const vector<rib_data_type> &ribs, const vector < int > &degree, bool closed_flag );
     void SkinRibs( const vector<rib_data_type> &ribs, bool closed_flag );
+
+    void SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, const vector <double> &tdisc, const vector < int > &degree, bool closed_flag );
+    void SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, const vector <double> &tdisc, bool closed_flag );
+    void SkinCubicSpline( const vector<rib_data_type> &ribs, const vector<double> &param, bool closed_flag );
 
     void SkinCX( const vector< VspCurve > &input_crv_vec, const vector< int > &cx, const vector < int > &degree, bool closed_flag );
     void SkinCX( const vector< VspCurve > &input_crv_vec, const vector< int > &cx, bool closed_flag );
@@ -85,6 +88,9 @@ public:
     bool IsMagicVParm() const { return m_MagicVParm; }
     void SetMagicVParm( bool t ) { m_MagicVParm = t; }
 
+    bool IsHalfBOR() const { return m_HalfBOR; }
+    void SetHalfBOR( bool t ) { m_HalfBOR = t; }
+
     int GetSurfType() { return m_SurfType; }
     void SetSurfType( int type ) { m_SurfType = type; }
 
@@ -96,6 +102,9 @@ public:
 
     double FindNearest01( double &u, double &w, const vec3d &pt ) const;
     double FindNearest01( double &u, double &w, const vec3d &pt, const double &u0, const double &w0 ) const;
+
+    void FindDistanceAngle( double &u, double &w, const vec3d &pt, const vec3d &dir, const double &d, const double &theta, const double &u0, const double &w0 ) const;
+    void GuessDistanceAngle( double &du, double &dw, const vec3d &udir, const vec3d & wdir, const double &d, const double &theta ) const;
 
     void GetUConstCurve( VspCurve &c, const double &u ) const;
     void GetWConstCurve( VspCurve &c, const double &w ) const;
@@ -132,9 +141,9 @@ public:
     {
         return m_WFeature.size();
     }
-    void BuildFeatureLines();
-    bool CapUMin(int capType);
-    bool CapUMax(int capType);
+    void BuildFeatureLines( bool force_xsec_flag = false );
+    bool CapUMin(int capType, double len, double str, double offset, bool swflag);
+    bool CapUMax(int capType, double len, double str, double offset, bool swflag);
     bool CapWMin(int capType);
     bool CapWMax(int capType);
     void FetchXFerSurf( const std::string &geom_id, int surf_ind, int comp_ind, vector< XferSurf > &xfersurfs );
@@ -144,19 +153,18 @@ public:
 
     void SetClustering( const double &le, const double &te );
     void SetRootTipClustering( const vector < double > &root, const vector < double > &tip );
-    double Cluster( const double &t, const double &a, const double &b ) const;
 
-    void MakeUTess( const vector<int> &num_u, std::vector<double> &utess ) const;
+    void MakeUTess( const vector<int> &num_u, std::vector<double> &utess, const std::vector<int> & umerge ) const;
     void MakeVTess( int num_v, std::vector<double> &vtess, const int &n_cap, bool degen ) const;
 
     //===== Tesselate ====//
     void TesselateTEforWake( std::vector< vector< vec3d > > & pnts ) const;
 
     void Tesselate( int num_u, int num_v, std::vector< vector< vec3d > > & pnts,  std::vector< vector< vec3d > > & norms,  std::vector< vector< vec3d > > & uw_pnts, const int &n_cap, bool degen ) const;
-    void Tesselate( const vector<int> &num_u, int num_v, std::vector< vector< vec3d > > & pnts,  std::vector< vector< vec3d > > & norms,  std::vector< vector< vec3d > > & uw_pnts, const int &n_cap, bool degen ) const;
+    void Tesselate( const vector<int> &num_u, int num_v, std::vector< vector< vec3d > > & pnts,  std::vector< vector< vec3d > > & norms,  std::vector< vector< vec3d > > & uw_pnts, const int &n_cap, bool degen, const std::vector<int> & umerge = std::vector<int>() ) const;
 
     void SplitTesselate( int num_u, int num_v, std::vector< vector< vector< vec3d > > > & pnts,  std::vector< vector< vector< vec3d > > > & norms, const int &n_cap ) const;
-    void SplitTesselate( const vector<int> &num_u, int num_v, std::vector< vector< vector< vec3d > > > & pnts,  std::vector< vector< vector< vec3d > > > & norms, const int &n_cap ) const;
+    void SplitTesselate( const vector<int> &num_u, int num_v, std::vector< vector< vector< vec3d > > > & pnts,  std::vector< vector< vector< vec3d > > > & norms, const int &n_cap, const std::vector<int> & umerge = std::vector<int>() ) const;
 
     void TessUFeatureLine( int iu, std::vector< vec3d > & pnts, double tol );
     void TessWFeatureLine( int iw, std::vector< vec3d > & pnts, double tol );
@@ -164,7 +172,7 @@ public:
     void TessAdaptLine( double umin, double umax, double wmin, double wmax, std::vector< vec3d > & pts, double tol, int Nlimit );
     void TessAdaptLine( double umin, double umax, double wmin, double wmax, const vec3d & pmin, const vec3d & pmax, std::vector< vec3d > & pts, double tol, int Nlimit, int Nadapt = 0 );
 
-    void SplitSurfs( const piecewise_surface_type &basesurf, vector< piecewise_surface_type > &surfvec );
+    void SplitSurfs( vector< piecewise_surface_type > &surfvec );
 
     void ExtractCPts( piecewise_surface_type &s, vector< vector< int > > &ptindxs, vector< vec3d > &allPntVec,
                       piecewise_surface_type::index_type &maxu, piecewise_surface_type::index_type &maxv,
@@ -172,14 +180,54 @@ public:
                       piecewise_surface_type::index_type &nupts, piecewise_surface_type::index_type &nvpts );
 
     void ToSTEP_Bez_Patches( STEPutil * step, vector<SdaiBezier_surface *> &surfs );
-    void ToSTEP_BSpline_Quilt( STEPutil * step, vector<SdaiB_spline_surface_with_knots *> &surfs, bool splitsurf, bool mergepts, bool tocubic, double tol );
+    void ToSTEP_BSpline_Quilt( STEPutil * step, vector<SdaiB_spline_surface_with_knots *> &surfs, bool splitsurf, bool mergepts, bool tocubic, double tol, bool trimte, const vector < double > &USplit, const vector < double > &WSplit );
 
-    void ToIGES( DLL_IGES &model, bool splitsurf, bool tocubic, double tol );
+    void ToIGES( DLL_IGES &model, bool splitsurf, bool tocubic, double tol, bool trimTE, const vector < double > &USplit, const vector < double > &WSplit );
 
     void SetUSkipFirst( bool f );
     void SetUSkipLast( bool f );
     void SetWSkipFirst( bool f );
     void SetWSkipLast( bool f );
+
+    piecewise_surface_type* GetBezierSurface()           { return &m_Surface; }
+
+    enum { SKIN_NONE, SKIN_BODY_REV, SKIN_RIBS };
+
+    int  GetSkinType()                                      { return m_SkinType; }
+    void GetBodyRevCurve( VspCurve & crv )                  { crv = m_BodyRevCurve; }
+    int  GetSkinClosedFlag()                                { return m_SkinClosedFlag; }
+    void GetSkinRibVec( vector< rib_data_type > & ribvec )  { ribvec = m_SkinRibVec; }
+    void GetSkinDegreeVec( vector< int > & degvec )         { degvec = m_SkinDegreeVec; }
+    void GetSkinParmVec( vector< double > & parmvec )       { parmvec = m_SkinParmVec; }
+
+    void SetClone( int index, const Matrix4d &mat )
+    {
+        m_CloneIndex = index;
+        m_CloneMat = mat;
+    }
+    bool IsClone()
+    {
+        return m_CloneIndex != -1;
+    }
+    int GetCloneIndex()                                     { return m_CloneIndex; }
+    void GetCloneMat( Matrix4d &mat )                       { mat = m_CloneMat; }
+
+    int GetNumSectU() const;
+    int GetNumSectW() const;
+
+    void Offset( vec3d offvec );
+    void OffsetX( double x );
+    void OffsetY( double y );
+    void OffsetZ( double Z );
+
+    void Scale( double s );
+
+    void ScaleX( double s );
+    void ScaleY( double s );
+    void ScaleZ( double s );
+
+    void SetFoilSurf( VspSurf *s )                           { m_FoilSurf = s; }
+    VspSurf *GetFoilSurf()                                   { return m_FoilSurf; }
 
 protected:
 
@@ -188,8 +236,11 @@ protected:
 
     static void IGESKnots( int deg, int npatch, vector< double > &knot );
 
+    bool CheckValidPatch( const piecewise_surface_type &surf );
+
     bool m_FlipNormal;
     bool m_MagicVParm;
+    bool m_HalfBOR;
     int m_SurfType;
     int m_SurfCfdType;
     piecewise_surface_type m_Surface;
@@ -206,8 +257,19 @@ protected:
     vector < double > m_RootCluster;
     vector < double > m_TipCluster;
 
-    int GetNumSectU() const;
-    int GetNumSectW() const;
+
+    //==== Store Skinning Inputs =====//
+    int m_SkinType;
+    VspCurve m_BodyRevCurve;
+    vector< rib_data_type > m_SkinRibVec;
+    vector< int > m_SkinDegreeVec;
+    vector< double > m_SkinParmVec;
+    int m_SkinClosedFlag;
+
+    int m_CloneIndex;
+    Matrix4d m_CloneMat;
+
+    VspSurf *m_FoilSurf;
 
 };
 #endif
